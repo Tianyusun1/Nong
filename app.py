@@ -1,18 +1,26 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from config import Config
-from sqlalchemy import or_
-# 导入所有模型 (包括 CartItem, Order, OrderItem)
+# 🔥 [修改] 增加 func 导入，用于聚合统计
+from sqlalchemy import or_, func
+# 导入所有模型
 from models import db, User, CommunityPost, FarmerInfo, Product, BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from sqlalchemy.exc import IntegrityError  # 导入完整性错误处理
+from sqlalchemy.exc import IntegrityError
+
+# 🔥 [新增] 导入推荐引擎核心类
+from recommend import RecommenderEngine
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
 # 初始化数据库
 db.init_app(app)
+
+# 🔥 [新增] 初始化推荐引擎
+# 注意：RecommenderEngine 内部需要使用 app_context，传入 app 实例
+recommender = RecommenderEngine(app)
 
 # ==========================================
 # 🔥 图片上传配置与目录检测
@@ -64,9 +72,10 @@ def inject_user():
 
 @app.route('/')
 def index():
-    """商城首页：商品展示与搜索"""
+    """商城首页：已接入核心推荐算法"""
     q = request.args.get('q', '')
 
+    # 1. 如果有搜索词，优先处理搜索
     if q:
         products = Product.query.filter(
             or_(
@@ -76,20 +85,58 @@ def index():
             )
         ).all()
         recommendation_msg = f"🔍 搜索结果: '{q}'"
+
+    # 2. 如果没有搜索词，尝试调用推荐算法
     else:
-        products = Product.query.order_by(Product.product_id.desc()).all()
+        # 默认回退方案（热门/最新）
+        fallback_products = Product.query.order_by(Product.product_id.desc()).all()
+        products = fallback_products
         recommendation_msg = "🔥 热门农产品推荐"
+
+        # 仅对已登录用户尝试个性化推荐
+        if 'user_id' in session:
+            try:
+                # 调用 recommend.py 中的算法获取推荐 ID 列表
+                recommended_ids = recommender.get_recommendations(session['user_id'])
+
+                if recommended_ids:
+                    # 根据 ID 获取商品详情
+                    # 注意：SQL查询结果顺序不一定按 IN 列表排序，需要手动重排
+                    rec_products = Product.query.filter(Product.product_id.in_(recommended_ids)).all()
+
+                    # 建立 ID -> Product 映射
+                    product_map = {p.product_id: p for p in rec_products}
+
+                    # 按推荐分数顺序构建列表
+                    sorted_products = [product_map[pid] for pid in recommended_ids if pid in product_map]
+
+                    if sorted_products:
+                        products = sorted_products
+                        recommendation_msg = "✨ 猜你喜欢 (为您定制)"
+            except Exception as e:
+                print(f"⚠️ 推荐算法调用失败，已回退到热门列表: {e}")
+                # 出错时保持默认的 products (热门) 不变
 
     return render_template('index.html', products=products, search_query=q, recommendation_msg=recommendation_msg)
 
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
-    """商品详情页"""
+    """商品详情页：接入 Item-Based 协同过滤 -> 热门商品兜底 + 收藏状态检查"""
     product = Product.query.get_or_404(product_id)
 
-    # 记录用户浏览行为 (行为类型 1)
+    # 1. 检查用户是否已收藏 (用于前端显示实心/空心星星)
+    has_favorited = False
     if 'user_id' in session:
+        fav_log = BehaviorLog.query.filter_by(
+            user_id=session['user_id'],
+            product_id=product_id,
+            behavior_type=2  # 2 代表收藏
+        ).first()
+        if fav_log:
+            has_favorited = True
+
+        # 记录用户浏览行为 (类型 1)
         try:
             new_log = BehaviorLog(
                 user_id=session['user_id'],
@@ -99,10 +146,68 @@ def product_detail(product_id):
             db.session.add(new_log)
             db.session.commit()
         except:
-            pass  # 忽略重复记录错误
+            pass
 
-    return render_template('product_detail.html', product=product)
+    # 2. 策略一：尝试获取“协同过滤”推荐 (基于物品相似度)
+    recommendations = []
 
+    # 查询相似度表
+    similar_items = ItemSimilarity.query.filter(
+        or_(ItemSimilarity.item_a_id == product_id, ItemSimilarity.item_b_id == product_id)
+    ).order_by(ItemSimilarity.similarity_score.desc()).limit(4).all()
+
+    if similar_items:
+        related_ids = []
+        for item in similar_items:
+            # 提取另一端的商品ID
+            target_id = item.item_b_id if item.item_a_id == product_id else item.item_a_id
+            related_ids.append(target_id)
+
+        if related_ids:
+            # 按ID获取商品并在内存中保持相似度排序
+            products_unsorted = Product.query.filter(Product.product_id.in_(related_ids)).all()
+            product_map = {p.product_id: p for p in products_unsorted}
+            recommendations = [product_map[pid] for pid in related_ids if pid in product_map]
+
+    # 3. 策略二 (热门兜底)：如果算法无结果，推荐“收藏/购买”最多的商品
+    if not recommendations:
+        # SQL逻辑: 统计 behavior_type 为 2(收藏) 或 4(购买) 的记录数，按降序取 Top 4
+        top_products_query = db.session.query(
+            BehaviorLog.product_id,
+            func.count(BehaviorLog.log_id).label('count')
+        ).filter(
+            BehaviorLog.behavior_type.in_([2, 4]),  # 只统计高权重行为
+            BehaviorLog.product_id != product_id  # 排除当前商品自己
+        ).group_by(
+            BehaviorLog.product_id
+        ).order_by(
+            func.count(BehaviorLog.log_id).desc()
+        ).limit(4).all()
+
+        if top_products_query:
+            top_ids = [r.product_id for r in top_products_query]
+            products_unsorted = Product.query.filter(Product.product_id.in_(top_ids)).all()
+            product_map = {p.product_id: p for p in products_unsorted}
+            recommendations = [product_map[pid] for pid in top_ids if pid in product_map]
+
+    # 4. 策略三 (冷启动兜底)：如果连热门数据都没有，推荐同分类或最新商品
+    if not recommendations:
+        # 优先同分类
+        recommendations = Product.query.filter(
+            Product.category == product.category,
+            Product.product_id != product_id
+        ).limit(4).all()
+
+    if not recommendations:
+        # 最后尝试全站最新
+        recommendations = Product.query.filter(
+            Product.product_id != product_id
+        ).order_by(Product.product_id.desc()).limit(4).all()
+
+    return render_template('product_detail.html',
+                           product=product,
+                           recommendations=recommendations,
+                           has_favorited=has_favorited)
 
 # ==========================================
 # 🏘️ 社区功能
@@ -130,7 +235,6 @@ def view_cart():
 
     total_price = sum(item.product.price * item.quantity for item in cart_items)
 
-    # 渲染 cart.html (现在 checkout 路由存在，不会报错)
     return render_template('cart.html', cart_items=cart_items, total_price=total_price)
 
 
@@ -166,7 +270,7 @@ def add_to_cart(product_id):
 
         db.session.commit()
 
-        # 记录加购行为 (行为类型 3)
+        # 记录加购行为 (行为类型 3: 加购)
         new_log = BehaviorLog(user_id=user_id, product_id=product_id, behavior_type=3)
         db.session.add(new_log)
         db.session.commit()
@@ -237,7 +341,6 @@ def checkout():
 
     total_price = sum(item.product.price * item.quantity for item in cart_items)
 
-    # 渲染 checkout.html
     return render_template('checkout.html', cart_items=cart_items, total_price=total_price)
 
 
@@ -295,7 +398,7 @@ def place_order():
             # 扣减库存
             product.stock -= item.quantity
 
-            # 记录购买行为 (最高权重，行为类型 4)
+            # 记录购买行为 (最高权重，行为类型 4: 购买)
             new_log = BehaviorLog(user_id=user_id, product_id=product.product_id, behavior_type=4)
             db.session.add(new_log)
 
@@ -433,13 +536,43 @@ def order_detail(order_id):
         return redirect(url_for('login'))
 
     # 查找特定订单，并确保该订单属于当前用户
-    # first_or_404() 确保如果找不到订单会返回 404 错误
     order = Order.query.filter_by(order_id=order_id, user_id=session['user_id']).first_or_404()
 
     # 状态映射
     status_map = {1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消'}
 
     return render_template('order_detail.html', order=order, status_map=status_map)
+
+
+@app.route('/profile/favorites')
+def view_favorites():
+    """查看我的收藏列表"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    # 1. 查询该用户所有 behavior_type=2 (收藏) 的日志
+    # 按时间倒序排列，最近收藏的在前面
+    logs = BehaviorLog.query.filter_by(
+        user_id=session['user_id'],
+        behavior_type=2
+    ).order_by(BehaviorLog.timestamp.desc()).all()
+
+    # 2. 提取商品ID并去重 (用户可能多次点击收藏)
+    # 使用 list(dict.fromkeys()) 保持顺序去重
+    product_ids = list(dict.fromkeys([log.product_id for log in logs]))
+
+    favorites = []
+    if product_ids:
+        # 3. 根据ID查询商品详情
+        products = Product.query.filter(Product.product_id.in_(product_ids)).all()
+        # 建立 ID -> Product 对象的映射，以便按收藏顺序排序
+        product_map = {p.product_id: p for p in products}
+
+        for pid in product_ids:
+            if pid in product_map:
+                favorites.append(product_map[pid])
+
+    return render_template('favorites.html', favorites=favorites)
 
 
 # ==========================================
@@ -472,8 +605,30 @@ def approve_farmer(user_id):
     return redirect(url_for('admin_dashboard'))
 
 
+# 🔥 [新增] 管理员手动触发推荐模型训练的路由
+@app.route('/admin/train_model')
+def train_model():
+    """手动触发推荐算法的离线计算 (计算物品相似度)"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+
+    # 仅限管理员操作
+    if not user or user.role != 2:
+        return "无权操作", 403
+
+    try:
+        # 调用核心算法进行离线计算，并更新数据库中的 ItemSimilarity 表
+        recommender.calculate_and_save_similarity()
+        flash('✅ 推荐模型训练完成！物品相似度矩阵已更新。')
+    except Exception as e:
+        print(f"训练失败: {e}")
+        flash(f'❌ 模型训练失败: {e}')
+
+    return redirect(url_for('admin_dashboard'))
+
+
 # ==========================================
-# 🔒 API: 行为采集
+# 🔒 API: 行为采集 (含收藏状态切换)
 # ==========================================
 
 @app.route('/api/collect_behavior', methods=['POST'])
@@ -482,22 +637,165 @@ def collect_behavior():
         return jsonify({'status': 'error', 'message': '未登录'}), 401
 
     data = request.get_json()
+    product_id = data.get('product_id')
+    behavior_type = int(data.get('behavior_type')) # 2:收藏, 3:加购, 4:购买
+
+    if not product_id:
+        return jsonify({'status': 'error', 'message': '参数错误'}), 400
+
     try:
-        new_log = BehaviorLog(
-            user_id=session['user_id'],
-            product_id=data.get('product_id'),
-            behavior_type=int(data.get('behavior_type'))  # 2:收藏, 3:加购
-        )
-        db.session.add(new_log)
+        # 🔥 如果是收藏操作 (type=2)，检查是否需要切换状态
+        if behavior_type == 2:
+            # 1. 查找所有该用户对该商品的收藏记录 (可能有多条)
+            existing_logs = BehaviorLog.query.filter_by(
+                user_id=session['user_id'],
+                product_id=product_id,
+                behavior_type=2
+            ).all()
+
+            if existing_logs:
+                # 🔥 存在记录 -> 全部删除 (彻底取消收藏)
+                for log in existing_logs:
+                    db.session.delete(log)
+                action = 'removed'
+                msg = '已取消收藏'
+            else:
+                # 不存在 -> 添加一条新记录
+                new_log = BehaviorLog(
+                    user_id=session['user_id'],
+                    product_id=product_id,
+                    behavior_type=2
+                )
+                db.session.add(new_log)
+                action = 'added'
+                msg = '收藏成功'
+        else:
+            # 其他行为 (如加购、购买)，直接添加记录，不去重
+            new_log = BehaviorLog(
+                user_id=session['user_id'],
+                product_id=product_id,
+                behavior_type=behavior_type
+            )
+            db.session.add(new_log)
+            action = 'added'
+            msg = '操作成功'
+
         db.session.commit()
-        return jsonify({'status': 'success'})
+        return jsonify({'status': 'success', 'action': action, 'message': msg})
+
     except Exception as e:
+        db.session.rollback()
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 # ==========================================
 # 🔐 认证路由
 # ==========================================
+
+# app.py (添加到末尾)
+
+@app.route('/farmer/dashboard')
+def farmer_dashboard():
+    """助农数据看板：核心业务统计"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+
+    # 权限控制：只有认证农户能看
+    if not user or user.role != 1:
+        flash('🚫 您不是农户，无法查看数据看板。')
+        return redirect(url_for('profile'))
+
+    # --- 1. 核心指标统计 ---
+    # 统计该农户所有商品的销售总额和总销量
+    sales_stats = db.session.query(
+        func.sum(OrderItem.quantity).label('total_sales'),
+        func.sum(OrderItem.price * OrderItem.quantity).label('total_revenue')
+    ).filter(OrderItem.farmer_id == user.user_id).first()
+
+    total_sales = sales_stats.total_sales or 0
+    total_revenue = sales_stats.total_revenue or 0
+
+    # 统计该农户所有商品的总浏览量 (PV)
+    # 关联 BehaviorLog 和 Product 表
+    views_stats = db.session.query(func.count(BehaviorLog.log_id)) \
+        .join(Product, BehaviorLog.product_id == Product.product_id) \
+        .filter(Product.farmer_id == user.user_id, BehaviorLog.behavior_type == 1) \
+        .scalar()
+
+    total_views = views_stats or 0
+
+    # 计算转化率 (下单数 / 浏览数)
+    # 注意：简单起见，这里用总销量/总浏览量估算
+    conversion_rate = round((total_sales / total_views * 100), 2) if total_views > 0 else 0
+
+    # --- 2. 推荐效果统计 (体现算法价值) ---
+    # 统计该农户商品被“收藏”和“加购”的次数 (高意向行为)
+    high_intent_stats = db.session.query(func.count(BehaviorLog.log_id)) \
+        .join(Product, BehaviorLog.product_id == Product.product_id) \
+        .filter(
+        Product.farmer_id == user.user_id,
+        BehaviorLog.behavior_type.in_([2, 3])  # 2=收藏, 3=加购
+    ).scalar()
+
+    # --- 3. 热销商品 Top 5 ---
+    top_products = db.session.query(
+        Product.name,
+        func.sum(OrderItem.quantity).label('sold_count')
+    ).join(OrderItem, Product.product_id == OrderItem.product_id) \
+        .filter(Product.farmer_id == user.user_id) \
+        .group_by(Product.product_id) \
+        .order_by(func.sum(OrderItem.quantity).desc()) \
+        .limit(5).all()
+
+    return render_template('farmer_dashboard.html',
+                           total_sales=total_sales,
+                           total_revenue=total_revenue,
+                           total_views=total_views,
+                           conversion_rate=conversion_rate,
+                           high_intent_count=high_intent_stats or 0,
+                           top_products=top_products)
+
+
+@app.route('/community/new', methods=['GET', 'POST'])
+def new_post():
+    """发布新帖子 (支持关联商品)"""
+    if 'user_id' not in session:
+        flash('请先登录后再发帖。')
+        return redirect(url_for('login'))
+
+    user = User.query.get(session['user_id'])
+
+    if request.method == 'POST':
+        title = request.form.get('title')
+        content = request.form.get('content')
+        # 获取关联的商品ID (如果是 'none' 或者空，则为 None)
+        product_id_str = request.form.get('product_id')
+        related_product_id = int(product_id_str) if product_id_str and product_id_str != 'none' else None
+
+        if not title or not content:
+            flash('标题和内容不能为空！', 'error')
+        else:
+            try:
+                new_post = CommunityPost(
+                    user_id=session['user_id'],
+                    title=title,
+                    content=content,
+                    related_product_id=related_product_id  # 🔥 保存关联商品
+                )
+                db.session.add(new_post)
+                db.session.commit()
+                flash('🎉 帖子发布成功！')
+                return redirect(url_for('community'))
+            except Exception as e:
+                db.session.rollback()
+                flash(f'发布失败: {e}', 'error')
+
+    # GET 请求：如果是农户，获取他的商品列表
+    my_products = []
+    if user.role == 1:  # 1 = 农户
+        my_products = Product.query.filter_by(farmer_id=user.user_id).all()
+
+    return render_template('publish_post.html', my_products=my_products)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():

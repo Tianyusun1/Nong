@@ -31,9 +31,9 @@ class User(db.Model):
     products = db.relationship('Product', backref='farmer', lazy=True)
     posts = db.relationship('CommunityPost', backref='author', lazy=True)
 
-    # 🔥 订单与购物车关联 (新增)
+    # 订单与购物车关联
     cart_items = db.relationship('CartItem', backref='user', lazy=True)
-    orders = db.relationship('Order', backref='customer', lazy=True) # 客户下的订单
+    orders = db.relationship('Order', backref='customer', lazy=True)
 
 
 class FarmerInfo(db.Model):
@@ -57,8 +57,8 @@ class Product(db.Model):
     farmer_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
 
     name = db.Column(db.String(100), nullable=False)  # 商品名称
-    category = db.Column(db.String(50))  # 分类 (用于搜索和冷启动)
-    origin = db.Column(db.String(100))  # 产地 (用于搜索)
+    category = db.Column(db.String(50))  # 分类
+    origin = db.Column(db.String(100))  # 产地
     price = db.Column(db.Numeric(10, 2), nullable=False)  # 价格
     stock = db.Column(db.Integer, default=0)  # 库存
     description = db.Column(db.Text)  # 详细描述
@@ -75,6 +75,12 @@ class CommunityPost(db.Model):
     post_date = db.Column(db.DateTime, default=datetime.now)
     views = db.Column(db.Integer, default=0)
 
+    # 🔥 [新增] 关联商品ID (允许为空)
+    related_product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=True)
+
+    # 🔥 [新增] 关联关系
+    related_product = db.relationship('Product', backref='related_posts', lazy=True)
+
 
 # ==========================================
 # 3. 推荐系统核心数据 (CF Engine Data)
@@ -87,7 +93,7 @@ class BehaviorLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
 
-    # 行为类型: 1: 点击, 2: 收藏, 3: 加购, 4: 购买 (高权重)
+    # 行为类型: 1: 点击, 2: 收藏, 3: 加购, 4: 购买
     behavior_type = db.Column(db.Integer, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.now)
 
@@ -98,31 +104,29 @@ class ItemSimilarity(db.Model):
     item_a_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), primary_key=True)
     item_b_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), primary_key=True)
 
-    similarity_score = db.Column(db.Float, nullable=False)  # 相似度得分 (0~1)
+    similarity_score = db.Column(db.Float, nullable=False)  # 相似度得分
     update_date = db.Column(db.Date, default=datetime.now)  # 计算时间
 
 
 # ==========================================
-# 🔥 4. 交易与订单体系 (Shopping Cart & Order)
+# 4. 交易与订单体系 (Shopping Cart & Order)
 # ==========================================
 
 class CartItem(db.Model):
-    """购物车项：存储用户在购物车中未结算的商品"""
+    """购物车项"""
     __tablename__ = 'T_Cart_Item'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
     quantity = db.Column(db.Integer, default=1)
 
-    # 关联：方便查询商品信息
     product = db.relationship('Product')
 
-    # 确保同一个用户不会重复添加同一个商品
     __table_args__ = (db.UniqueConstraint('user_id', 'product_id', name='_user_product_uc'),)
 
 
 class Order(db.Model):
-    """订单主表：存储订单的整体信息"""
+    """订单主表"""
     __tablename__ = 'T_Order'
     order_id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
@@ -132,25 +136,22 @@ class Order(db.Model):
     status = db.Column(db.Integer, default=1)
     order_date = db.Column(db.DateTime, default=datetime.now)
 
-    # 收货信息 (简化处理，直接存在订单里)
     address = db.Column(db.String(255))
     receiver_name = db.Column(db.String(50))
     receiver_phone = db.Column(db.String(20))
 
-    # 关联：订单详情
     items = db.relationship('OrderItem', backref='order', lazy=True)
 
 
 class OrderItem(db.Model):
-    """订单详情表：存储订单中包含的具体商品和价格"""
+    """订单详情表"""
     __tablename__ = 'T_Order_Item'
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('T_Order.order_id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
-    farmer_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False) # 冗余存储，方便农户查询
+    farmer_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
 
     quantity = db.Column(db.Integer, nullable=False)
-    price = db.Column(db.Numeric(10, 2), nullable=False) # 下单时的价格（防止商品变价）
+    price = db.Column(db.Numeric(10, 2), nullable=False)
 
-    # 关联：方便查询商品信息
     product = db.relationship('Product')

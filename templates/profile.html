@@ -2,7 +2,6 @@
 
 {% block content %}
 <div class="row">
-    <!-- 左侧个人信息卡片 -->
     <div class="col-md-3">
         <div class="card p-3 mb-3 shadow-sm">
             <div class="text-center">
@@ -23,7 +22,6 @@
                 </p>
             </div>
 
-            <!-- 详细资料展示区域 -->
             <hr>
             <div class="text-start small text-secondary">
                 <p class="mb-2"><strong>📞 电话:</strong> {{ user.phone or '未填写' }}</p>
@@ -50,7 +48,6 @@
         </div>
     </div>
 
-    <!-- 右侧功能面板 -->
     <div class="col-md-9">
         <div class="card shadow-sm">
             <div class="card-header bg-white">
@@ -62,38 +59,36 @@
             </div>
             <div class="card-body">
 
-                <!-- 农户面板：只有 (角色=农户 且 状态=正常) 才显示 -->
                 {% if user.role == 1 and user.status == 1 %}
                     <h5 class="card-title text-success mb-4">🌾 我的农场管理</h5>
                     <div class="row text-center">
                         <div class="col-md-4">
                             <div class="border rounded p-4 bg-light h-100">
-                                <!-- 自动计算已发布商品数量 -->
                                 <h3 class="fw-bold text-success">{{ user.products|length }}</h3>
                                 <p class="text-muted">在售商品</p>
-                                <!-- 🔥 修复点：确保这里是正确的链接 a 标签 🔥 -->
-                                <a href="{{ url_for('publish_product') }}" class="btn btn-success w-100 mt-2">🌱 发布新商品</a>
+
+                                <div class="d-grid gap-2">
+                                    <a href="{{ url_for('publish_product') }}" class="btn btn-success mt-2">🌱 发布新商品</a>
+                                    <a href="{{ url_for('farmer_dashboard') }}" class="btn btn-outline-primary">📊 查看数据看板</a>
+                                </div>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="border rounded p-4 bg-light h-100">
-                                <h3 class="fw-bold">0</h3>
-                                <p class="text-muted">待发货订单</p>
+                                <h3 class="fw-bold">0</h3> <p class="text-muted">待发货订单</p>
                                 <button class="btn btn-outline-primary w-100 mt-2">查看订单</button>
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="border rounded p-4 bg-light h-100">
-                                <h3 class="fw-bold text-warning">￥0.00</h3>
+                                <h3 class="fw-bold text-warning">￥...</h3>
                                 <p class="text-muted">累计收益</p>
-                                <button class="btn btn-outline-secondary w-100 mt-2">财务统计</button>
+                                <a href="{{ url_for('farmer_dashboard') }}" class="btn btn-outline-secondary w-100 mt-2">财务统计</a>
                             </div>
                         </div>
                     </div>
 
                 {% else %}
-                    <!-- 其他用户/未审核农户面板 -->
-
                     {% if user.role == 1 and user.status != 1 %}
                         <div class="alert alert-warning d-flex align-items-center" role="alert">
                             <div class="me-2">⏳</div>
@@ -114,7 +109,7 @@
                         <div class="col-md-6">
                             <div class="list-group">
                                 <a href="{{ url_for('orders') }}" class="list-group-item list-group-item-action">📦 我的订单</a>
-                                <a href="#" class="list-group-item list-group-item-action">❤️ 我的收藏</a>
+                                <a href="{{ url_for('view_favorites') }}" class="list-group-item list-group-item-action">❤️ 我的收藏</a>
                                 <a href="#" class="list-group-item list-group-item-action">📍 收货地址管理</a>
                             </div>
                         </div>

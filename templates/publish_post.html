@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">✍️ 发布新话题</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">帖子标题</label>
+                        <input type="text" name="title" class="form-control" placeholder="请输入标题" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">内容详情</label>
+                        <textarea name="content" class="form-control" rows="6" placeholder="分享您的乡村生活..." required></textarea>
+                    </div>
+
+                    {% if my_products %}
+                    <div class="mb-4 p-3 bg-light rounded border">
+                        <label class="form-label fw-bold text-success">🍅 关联我的农产品 (可选)</label>
+                        <select name="product_id" class="form-select">
+                            <option value="none">-- 不关联任何商品 --</option>
+                            {% for product in my_products %}
+                                <option value="{{ product.product_id }}">
+                                    {{ product.name }} (￥{{ product.price }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-muted">
+                            选择后，帖子下方会显示该商品的购买卡片，方便买家直接下单。
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-end gap-2">
+                        <a href="{{ url_for('community') }}" class="btn btn-outline-secondary">取消</a>
+                        <button type="submit" class="btn btn-success px-4">🚀 立即发布</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
