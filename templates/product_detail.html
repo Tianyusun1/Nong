@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row">
+            <!-- 左侧：商品图片 -->
+            <div class="col-md-5 text-center">
+                {% if product.image_url %}
+                    <img src="{{ product.image_url }}" class="img-fluid rounded" alt="{{ product.name }}" style="max-height: 400px; object-fit: cover;">
+                {% else %}
+                    <div class="bg-light rounded d-flex align-items-center justify-content-center" style="height: 300px;">
+                        <span class="text-muted display-4">🖼️</span>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- 右侧：商品信息 -->
+            <div class="col-md-7">
+                <div class="d-flex justify-content-between align-items-start">
+                    <h2 class="fw-bold">{{ product.name }}</h2>
+                    <span class="badge bg-success">{{ product.category }}</span>
+                </div>
+
+                <p class="text-muted mb-2">
+                    📍 产地：{{ product.origin }} | 📦 库存：<span class="text-info fw-bold">{{ product.stock }}</span>
+                </p>
+
+                {% if product.stock <= 0 %}
+                    <div class="alert alert-danger p-2 small">该商品已售罄，暂时无法购买。</div>
+                {% endif %}
+
+                <div class="p-3 bg-light rounded mb-4">
+                    <h3 class="text-danger m-0 fw-bold">￥{{ product.price }} <small class="fs-6 text-muted fw-normal">/ 份</small></h3>
+                </div>
+
+                <h5 class="border-bottom pb-2">商品详情</h5>
+                <p class="text-secondary" style="white-space: pre-line;">
+                    {{ product.description or "农户很懒，还没有填写详细描述。" }}
+                </p>
+
+                <hr>
+
+                <!-- 🔥 购物车表单和操作区 🔥 -->
+                {% if product.stock > 0 %}
+                <form action="{{ url_for('add_to_cart', product_id=product.product_id) }}" method="POST" class="mb-4">
+                    <div class="d-flex align-items-center mb-3">
+                        <label for="quantity-input" class="form-label me-3 fw-bold">购买数量：</label>
+                        <input type="number"
+                               id="quantity-input"
+                               name="quantity"
+                               class="form-control me-3"
+                               value="1"
+                               min="1"
+                               max="{{ product.stock }}"
+                               style="width: 100px;"
+                               required>
+                        <span class="text-muted small">最高可购 {{ product.stock }} 份</span>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-block">
+                        <!-- 加入购物车按钮 -->
+                        <button type="submit" class="btn btn-success btn-lg me-md-2">
+                            🛒 加入购物车
+                        </button>
+
+                        <!-- 收藏按钮 (通过 JS 触发 API) -->
+                        <button type="button"
+                                class="btn btn-outline-warning btn-lg"
+                                id="btn-collect"
+                                data-product-id="{{ product.product_id }}">
+                            ⭐ 收藏
+                        </button>
+                    </div>
+                </form>
+                {% endif %}
+
+                <hr class="mt-4">
+
+                <!-- 农户信息 -->
+                <div class="d-flex align-items-center">
+                    <div class="me-3">
+                        <div class="bg-warning rounded-circle d-flex align-items-center justify-content-center text-white" style="width: 50px; height: 50px; font-size: 20px;">
+                            👨‍🌾
+                        </div>
+                    </div>
+                    <div>
+                        <p class="mb-0 fw-bold">发布农户：{{ product.farmer.username }}</p>
+                        <small class="text-muted">实名认证 | 产地直供</small>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 推荐区域预留 -->
+<div class="row mt-5">
+    <div class="col-12">
+        <h4>✨ 猜你喜欢 (协同过滤推荐)</h4>
+        <hr>
+        <p class="text-muted text-center py-4">
+            (推荐算法模块待开发：当积累足够的用户行为数据后，这里将展示相关的农产品)
+        </p>
+    </div>
+</div>
+
+<!-- JS 用于处理收藏操作 -->
+<script>
+    document.getElementById('btn-collect').addEventListener('click', function() {
+        // 检查用户是否登录
+        if (!{{ current_user.user_id or 'false' }}) {
+            alert('请先登录才能进行收藏操作！');
+            return;
+        }
+
+        const productId = this.getAttribute('data-product-id');
+
+        fetch('/api/collect_behavior', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                product_id: productId,
+                behavior_type: 2 // 2: 收藏
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('✅ 收藏成功，您的喜好已被记录！');
+            } else {
+                alert('操作失败: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Fetch error:', error);
+            alert('网络请求失败。');
+        });
+    });
+</script>
+{% endblock %}

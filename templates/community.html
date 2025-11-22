@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <h3>🌱 乡村生活 & 好物推荐</h3>
+        <hr>
+        {% for post in posts %}
+        <div class="card mb-3 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ post.title }}</h5>
+                <h6 class="card-subtitle mb-2 text-muted">
+                    <small>作者: 用户{{ post.user_id }} | {{ post.post_date }}</small>
+                </h6>
+                <p class="card-text">{{ post.content }}</p>
+            </div>
+        </div>
+        {% else %}
+        <div class="text-center py-5">
+            <h3>🚜</h3>
+            <p>社区暂时还没有帖子哦</p>
+            <p>快去注册一个农户账号发布第一条动态吧！</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
