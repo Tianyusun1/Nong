@@ -25,7 +25,6 @@ db.init_app(app)
 socketio = SocketIO(app)
 
 # 🔥 修复：调整 RecommenderEngine 初始化时机和方式（假设 RecommenderEngine 类接受 Flask app 实例）
-# 注意：如果 recommend.py 中的 RecommenderEngine 接受 (db, Product, ...) 等参数，你需要根据实际情况调整这里的初始化。
 # 这里暂时使用原版传入 app 的方式，并假设它在内部处理了依赖。
 recommender = RecommenderEngine(app)
 
@@ -55,10 +54,12 @@ def init_shipping_templates():
     if ShippingTemplate.query.count() == 0:
         default_template = ShippingTemplate(template_id=1, name="默认运费", base_cost=Decimal('10.00'))
         cold_chain_template = ShippingTemplate(template_id=2, name="冷链运费", base_cost=Decimal('25.00'))
+        # 新增免运费模板 (ID=3)
+        free_shipping_template = ShippingTemplate(template_id=3, name="免运费", base_cost=Decimal('0.00'))
 
-        db.session.add_all([default_template, cold_chain_template])
+        db.session.add_all([default_template, cold_chain_template, free_shipping_template])
         db.session.commit()
-        print("✅ 默认运费模板已初始化 (ID 1, 2)！")
+        print("✅ 默认运费模板已初始化 (ID 1, 2, 3)！")
 
 
 # ==========================================
@@ -85,12 +86,38 @@ def inject_user():
 
 def calculate_shipping_cost(cart_items, address):
     """
-    实际的运费计算需要根据收货地址、商品重量/件数、运费模板来计算。
-    这里为简化，统一返回一个基础运费。
+    根据传入的购物车项列表或运费模板ID，计算运费。
+    当传入列表时，取所有商品的运费模板中最高的 base_cost 作为最终运费 (简化逻辑)。
     """
     if not cart_items:
         return Decimal('0.00')
 
+    # Case 1: Template ID is passed as an integer (e.g. from place_order for a single item).
+    if isinstance(cart_items, int):
+        template = ShippingTemplate.query.get(cart_items)
+        return template.base_cost if template else Decimal('10.00')
+
+    # Case 2: List of CartItem objects is passed (from checkout). This is the key fix.
+    if isinstance(cart_items, list):
+        max_cost = Decimal('0.00')
+
+        # 查找购物车中所有商品的运费模板 ID
+        template_ids = {
+            item.sku.product.shipping_template_id
+            for item in cart_items
+            if item.sku and item.sku.product and item.sku.product.shipping_template_id
+        }
+
+        # 遍历所有唯一的模板 ID，获取最高运费
+        for template_id in template_ids:
+            template = ShippingTemplate.query.get(template_id)
+            if template:
+                # 运费取所有模板中最高的那个
+                max_cost = max(max_cost, template.base_cost)
+
+        return max_cost
+
+    # Fallback for unexpected input
     return Decimal('10.00')
 
 
@@ -471,16 +498,40 @@ def remove_from_cart(item_id):
 # 💵 结算与下单
 # ==========================================
 
-@app.route('/checkout')
+@app.route('/checkout', methods=['GET', 'POST'])
 def checkout():
     """结算页面：展示商品、运费和收货信息"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    # 优化：预加载 sku 及其 product 和 farmer
-    cart_items = CartItem.query.filter_by(user_id=session['user_id']).options(
+    user_id = session['user_id']
+
+    # 默认查询所有项目 (用于 GET 访问)
+    cart_items_query = CartItem.query.filter_by(user_id=user_id).options(
         joinedload(CartItem.sku).joinedload(ProductSKU.product).joinedload(Product.farmer)
-    ).all()
+    )
+
+    # 如果是 POST 请求，则根据前端选中的商品 ID 进行严格过滤
+    if request.method == 'POST':
+        selected_items_str = request.form.get('selected_items', '')
+
+        try:
+            # 1. 解析选中的 CartItem ID 列表
+            selected_ids = [int(id_str) for id_str in selected_items_str.split(',') if id_str.strip()]
+        except ValueError:
+            flash("结算错误：商品选择列表格式不正确。", 'error')
+            return redirect(url_for('view_cart'))
+
+        if not selected_ids:
+            flash("请至少选择一件商品进行结算。", 'error')
+            return redirect(url_for('view_cart'))
+
+        # 2. 严格筛选出用户选中的商品
+        cart_items = cart_items_query.filter(CartItem.id.in_(selected_ids)).all()
+
+    else:
+        # GET 请求或未进行 POST 提交，使用默认查询（通常会拉取所有购物车商品）
+        cart_items = cart_items_query.all()
 
     if not cart_items:
         flash("购物车为空，无法结算。", 'error')
@@ -488,6 +539,7 @@ def checkout():
 
     total_price = sum(item.sku.price * item.quantity for item in cart_items)
 
+    # **修复运费计算：传入商品列表，让函数根据模板 ID 计算最高运费**
     shipping_cost = calculate_shipping_cost(cart_items, None)
 
     final_total = total_price + shipping_cost
@@ -519,6 +571,9 @@ def place_order():
         return redirect(url_for('checkout'))
 
     # 优化：预加载 sku 及其 product
+    # 注意：这里有一个缺陷，place_order 无法直接知道用户在 checkout 页面选择了哪些商品，
+    # 只能从购物车拉取所有商品。如果用户只选择了一部分，这可能导致下单的商品数量/种类不正确。
+    # **为解决运费计算和保持逻辑一致性，我们假设购物车中的所有商品都会被购买，或者前端已清空未选中的商品。**
     cart_items = CartItem.query.filter_by(user_id=user_id).options(
         joinedload(CartItem.sku).joinedload(ProductSKU.product)
     ).all()
@@ -538,9 +593,9 @@ def place_order():
         return redirect(url_for('checkout'))
 
     goods_total = sum(item.sku.price * item.quantity for item in cart_items)
-    # 使用第一个商品的运费模板计算运费 (简化)
-    shipping_cost = calculate_shipping_cost(cart_items[0].sku.product.shipping_template_id if cart_items and cart_items[
-        0].sku.product.shipping_template_id else 1)
+
+    # **修复运费计算：传入 cart_items 列表，以便根据模板计算**
+    shipping_cost = calculate_shipping_cost(cart_items, None)
 
     calculated_total = goods_total + shipping_cost
 
@@ -779,7 +834,6 @@ def edit_product(product_id):
 
     # 预加载 SKU
     product = Product.query.options(joinedload(Product.skus)).get_or_404(product_id)
-    main_sku = product.skus[0] if product.skus else None
 
     if not user or user.role != 1 or product.farmer_id != user.user_id:
         flash('🚫 权限不足，无法编辑该商品。')
@@ -787,22 +841,70 @@ def edit_product(product_id):
 
     if request.method == 'POST':
         try:
-            # 1. 严格校验和类型转换 (解决无法保存的问题)
-            spec_name_input = request.form.get('spec_name')
-            price_str = request.form.get('price')
-            stock_str = request.form.get('stock')
+            # --- 1. 获取并处理 SKU 列表数据 ---
+            sku_ids = request.form.getlist('sku_id[]')
+            spec_names = request.form.getlist('spec_name[]')
+            prices = request.form.getlist('price[]')
+            stocks = request.form.getlist('stock[]')
 
-            if not price_str or not stock_str or not spec_name_input:
-                raise ValueError("规格名称、价格和库存字段不能为空。")
+            if not spec_names or len(spec_names) == 0:
+                raise ValueError("必须至少保留一个商品规格。")
 
-            # 尝试类型转换
-            price_val = Decimal(price_str)
-            stock_val = int(stock_str)
+            # 映射现有 SKU 以便查找和更新
+            existing_skus = {sku.sku_id: sku for sku in product.skus}
+            submitted_sku_ids = set()
 
-            if price_val <= Decimal('0.00') or stock_val < 0:
-                raise ValueError("价格必须大于零，库存不能为负数。")
+            # --- 2. 校验、更新或创建 SKU ---
+            if len(sku_ids) != len(spec_names) or len(prices) != len(spec_names) or len(stocks) != len(spec_names):
+                raise ValueError("提交的规格数据数量不匹配。")
 
-            # 2. 图片 URL 处理
+            for i in range(len(spec_names)):
+
+                sku_id_str = sku_ids[i].strip()
+                spec_name_val = spec_names[i].strip()
+                price_str = prices[i].strip()
+                stock_str = stocks[i].strip()
+
+                # --- 核心修复：跳过完全空白的新增行 ---
+                # 只有当它是新增行 (无 ID) 且所有核心字段都为空时才跳过。
+                if not sku_id_str and not spec_name_val and not price_str and not stock_str:
+                    continue
+                # ------------------------------------
+
+                # 处理空字符串，确保能转为 Decimal/int
+                price_val = Decimal(price_str or '0')
+                stock_val = int(stock_str or '0')
+
+                # 严格校验：名称必须存在，价格必须大于零，库存不能为负数
+                if not spec_name_val or price_val <= Decimal('0.00') or stock_val < 0:
+                    raise ValueError(f"规格 '{spec_name_val or '[名称为空]'}' 校验失败：价格必须大于零，库存不能为负数，且名称不能为空。")
+
+                sku_id_str = sku_ids[i].strip()
+
+                if sku_id_str:
+                    # 现有 SKU：更新
+                    sku_id = int(sku_id_str)
+                    current_sku = existing_skus.get(sku_id)
+                    if not current_sku:
+                        raise Exception(f"尝试更新不存在的 SKU ID: {sku_id}")
+
+                    current_sku.spec_name = spec_names[i]
+                    current_sku.price = price_val
+                    current_sku.stock = stock_val
+                    submitted_sku_ids.add(sku_id)
+                else:
+                    # 新 SKU：创建
+                    new_sku = ProductSKU(product_id=product_id, spec_name=spec_names[i], price=price_val,
+                                         stock=stock_val)
+                    db.session.add(new_sku)
+
+            # --- 3. 处理 SKU 删除 (删除提交中缺失的现有 SKU) ---
+            for sku_id, sku_obj in existing_skus.items():
+                if sku_id not in submitted_sku_ids:
+                    # 如果现有 SKU 不在本次提交的列表中，则删除它
+                    db.session.delete(sku_obj)
+
+            # --- 4. 图片和基础信息处理 (与之前保持一致) ---
             image_url = product.image_url
 
             if 'image_file' in request.files:
@@ -823,21 +925,13 @@ def edit_product(product_id):
                     # 如果手动输入为空，且没有上传文件，则清空 URL
                     image_url = None
 
-            # 3. 更新 Product 主表字段
+            # 5. 更新 Product 主表字段
             product.name = request.form.get('name')
             product.category = request.form.get('category')
             product.origin = request.form.get('origin')
             product.description = request.form.get('description')
             product.image_url = image_url
             product.shipping_template_id = request.form.get('shipping_template_id', type=int)
-
-            # 4. 更新主要 SKU 规格
-            if main_sku:
-                main_sku.spec_name = spec_name_input
-                main_sku.price = price_val
-                main_sku.stock = stock_val
-            else:
-                raise Exception("商品规格（SKU）数据丢失，无法更新。")
 
             db.session.commit()
             flash('✅ 商品信息修改成功！')
@@ -846,15 +940,18 @@ def edit_product(product_id):
         except ValueError as ve:
             db.session.rollback()
             flash(f'❌ 数据校验失败: {ve}', 'error')
+            # 发生校验错误时，使用重定向（PRG模式）
             return redirect(url_for('edit_product', product_id=product_id))
 
         except Exception as e:
             db.session.rollback()
             print(f"编辑错误: {e}")
             flash(f'❌ 编辑失败，系统错误: {e}', 'error')
+            # 发生严重错误时，使用重定向（PRG模式）
             return redirect(url_for('edit_product', product_id=product_id))
 
-    return render_template('edit_product.html', product=product, skus=[main_sku] if main_sku else [])
+    # GET request: Ensure product.skus is available for the template
+    return render_template('edit_product.html', product=product, skus=product.skus)
 
 
 @app.route('/product/delete/<int:product_id>', methods=['POST'])

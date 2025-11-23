@@ -48,7 +48,9 @@
 </div>
 
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-    {% for product in products %}
+    {% for item in products %}
+    {% set product = item.product %}
+    {% set min_price = item.min_price %}
     <div class="col">
         <div class="card h-100 shadow-sm border-0 product-card">
             <div class="position-relative overflow-hidden" style="height: 200px;">
@@ -75,11 +77,6 @@
                 </p>
 
                 <div class="mt-auto d-flex justify-content-between align-items-end">
-                    {% set min_price = 0 %}
-                    {% if product.skus %}
-                        {% set min_price = product.skus | map(attribute='price') | min %}
-                    {% endif %}
-
                     <div>
                         <small class="text-muted">起售价</small>
                         <div class="text-danger fw-bold fs-5">
