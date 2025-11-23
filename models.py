@@ -1,7 +1,6 @@
-# tianyusun1/test/Test-Tianyusun1-patch-1/models.py
-
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from decimal import Decimal  # 确保 Decimal 导入
 
 # 初始化数据库对象
 db = SQLAlchemy()
@@ -58,7 +57,7 @@ class ShippingTemplate(db.Model):
     __tablename__ = 'T_Shipping_Template'
     template_id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    base_cost = db.Column(db.Numeric(10, 2), default=10.00)  # 基础运费，后续可扩展为按地区/重量计算
+    base_cost = db.Column(db.Numeric(10, 2), default=Decimal('10.00'))  # 基础运费，后续可扩展为按地区/重量计算
 
 
 class Product(db.Model):
@@ -71,7 +70,6 @@ class Product(db.Model):
     category = db.Column(db.String(50))  # 分类
     origin = db.Column(db.String(100))  # 产地
 
-    # 🔥 [修改] 移除 price 和 stock，将其移至 ProductSKU
     # price = db.Column(db.Numeric(10, 2), nullable=False)
     # stock = db.Column(db.Integer, default=0)
 
@@ -110,6 +108,9 @@ class CommunityPost(db.Model):
     content = db.Column(db.Text, nullable=False)
     post_date = db.Column(db.DateTime, default=datetime.now)
     views = db.Column(db.Integer, default=0)
+
+    # 🔥 [新增] 社区帖子图片 URL 字段
+    image_url = db.Column(db.String(255), nullable=True)
 
     # 🔥 [新增] 关联商品ID (允许为空)
     related_product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=True)
@@ -181,7 +182,7 @@ class Order(db.Model):
     receiver_phone = db.Column(db.String(20))
 
     # 🔥 [新增] 订单运费
-    shipping_cost = db.Column(db.Numeric(10, 2), default=0.00)
+    shipping_cost = db.Column(db.Numeric(10, 2), default=Decimal('0.00'))
 
     # 🔥 [新增] 追踪/发货信息
     tracking_number = db.Column(db.String(100))  # 发货单号

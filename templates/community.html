@@ -10,7 +10,10 @@
             </a>
         </div>
 
-        {% for post in posts %}
+        {% for post_data in posts %}
+        {% set post = post_data.post %}
+        {% set min_price = post_data.min_price %}
+
         <div class="card mb-3 shadow-sm border-0 hover-shadow">
             <div class="card-body">
                 <h5 class="card-title fw-bold text-dark">
@@ -22,6 +25,13 @@
                 </h6>
 
                 <p class="card-text text-secondary" style="white-space: pre-line;">{{ post.content }}</p>
+
+                <!-- 🔥 新增：如果帖子有图片，显示图片 -->
+                {% if post.image_url %}
+                <div class="mb-3">
+                    <img src="{{ post.image_url }}" class="img-fluid rounded shadow-sm" alt="帖子配图" style="max-height: 250px; object-fit: cover;">
+                </div>
+                {% endif %}
 
                 {% if post.related_product %}
                 <div class="mt-3 p-2 border rounded bg-light d-flex align-items-center" style="max-width: 100%;">
@@ -35,12 +45,9 @@
 
                     <div class="flex-grow-1">
                         <h6 class="mb-0 fw-bold text-truncate" style="max-width: 200px;">{{ post.related_product.name }}</h6>
-                        {% set min_price = 0 %}
-                        {% if post.related_product.skus %}
-                            {% set min_price = post.related_product.skus | map(attribute='price') | min %}
-                        {% endif %}
+
                         <small class="text-danger fw-bold">
-                            {% if min_price > 0 %}
+                            {% if min_price is not none and min_price > 0 %}
                                 ￥{{ min_price | round(2) }} (起)
                             {% else %}
                                 暂无价格

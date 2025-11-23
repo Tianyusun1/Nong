@@ -8,7 +8,8 @@
                 <h5 class="mb-0">✍️ 发布新话题</h5>
             </div>
             <div class="card-body">
-                <form method="POST">
+                <!-- 关键修改：添加 enctype="multipart/form-data" 属性以支持文件上传 -->
+                <form method="POST" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label class="form-label fw-bold">帖子标题</label>
                         <input type="text" name="title" class="form-control" placeholder="请输入标题" required>
@@ -17,6 +18,17 @@
                     <div class="mb-3">
                         <label class="form-label fw-bold">内容详情</label>
                         <textarea name="content" class="form-control" rows="6" placeholder="分享您的乡村生活..." required></textarea>
+                    </div>
+
+                    <!-- 新增：图片上传字段 -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">帖子配图 (可选)</label>
+                        <div class="input-group">
+                            <input type="file" name="image_file" class="form-control" accept="image/*">
+                        </div>
+                        <div class="form-text text-muted">
+                            <small>上传图片将使您的帖子更吸引人。支持 jpg, png, gif 格式。</small>
+                        </div>
                     </div>
 
                     {% if my_products %}

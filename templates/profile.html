@@ -81,7 +81,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="border rounded p-4 bg-light h-100">
-                                <h3 class="fw-bold text-warning">￥...</h3>
+                                <h3 class="fw-bold text-warning">￥{{ total_revenue | round(2) }}</h3>
                                 <p class="text-muted">累计收益</p>
                                 <a href="{{ url_for('farmer_dashboard') }}" class="btn btn-outline-secondary w-100 mt-2">财务统计</a>
                             </div>
