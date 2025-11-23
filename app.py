@@ -578,7 +578,23 @@ def place_order():
 def profile():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = User.query.get(session['user_id'])
-    return render_template('profile.html', user=user)
+
+    # 🔥 [新增] 农户待发货订单数量计算
+    pending_orders_count = 0
+    if user and user.role == 1:
+        # 查找包含该农户商品的订单ID，且订单状态为“待发货”(status=2)
+        # 使用子查询获取包含该农户商品的订单ID
+        order_ids_with_farmer_items = db.session.query(OrderItem.order_id).filter(
+            OrderItem.farmer_id == user.user_id
+        ).distinct().subquery()
+
+        # 计算待发货订单总数，必须是待发货状态 (status=2)
+        pending_orders_count = db.session.query(Order).filter(
+            Order.order_id.in_(order_ids_with_farmer_items),
+            Order.status == 2
+        ).count()
+
+    return render_template('profile.html', user=user, pending_orders_count=pending_orders_count)  #
 
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
@@ -833,6 +849,8 @@ def delete_product(product_id):
     return redirect(url_for('profile'))
 
 
+# ----------------- 消费者订单管理 (Consumer Order Management) -----------------
+
 @app.route('/profile/orders')
 def orders():
     """消费者：查看自己的订单列表"""
@@ -841,12 +859,15 @@ def orders():
 
     user_orders = Order.query.filter_by(user_id=session['user_id']).order_by(Order.order_date.desc()).all()
 
+    # 🔥 [修改/新增] 订单状态映射，新增 6-售后中, 7-已退款/售后完成
     status_map = {
         1: '待支付',
         2: '待发货',
         3: '待收货',
         4: '已完成',
-        5: '已取消'
+        5: '已取消',
+        6: '售后中',
+        7: '已退款/售后完成'
     }
 
     return render_template('orders.html', orders=user_orders, status_map=status_map)
@@ -854,18 +875,334 @@ def orders():
 
 @app.route('/order/<int:order_id>')
 def order_detail(order_id):
-    """订单详情页：展示订单内的商品、收货信息等"""
+    """订单详情页：展示订单内的商品、收货信息等（支持消费者、农户、管理员查看）"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    # 查找特定订单，并确保该订单属于当前用户
-    order = Order.query.filter_by(order_id=order_id, user_id=session['user_id']).first_or_404()
+    current_user = User.query.get(session['user_id'])
 
-    # 状态映射
-    status_map = {1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消'}
+    # 1. 查找特定订单
+    order = Order.query.get_or_404(order_id)
+
+    # 2. 🔥 [修改] 权限检查逻辑：允许消费者、负责农户和管理员访问
+    has_access = False
+
+    # a. 消费者: 订单属于当前用户
+    if order.user_id == current_user.user_id:
+        has_access = True
+
+    # b. 农户: 订单包含该农户的商品 (OrderItems)
+    elif current_user.role == 1:
+        is_farmer_item = OrderItem.query.filter_by(
+            order_id=order_id,
+            farmer_id=current_user.user_id
+        ).first()
+        if is_farmer_item:
+            has_access = True
+
+    # c. 管理员: 可以查看所有
+    elif current_user.role == 2:
+        has_access = True
+
+    if not has_access:
+        flash('🚫 权限不足，无法查看该订单详情。', 'error')
+        # 重定向到合适的页面
+        if current_user.role == 1:
+            return redirect(url_for('farmer_orders'))
+        return redirect(url_for('profile'))
+
+    # 订单状态映射 (保持最新状态)
+    status_map = {
+        1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消',
+        6: '售后中', 7: '已退款/售后完成'
+    }
+
+    # 临时将 status_map 绑定到 order 对象，方便 edit_order_address 模板调用
+    order.status_map = status_map
 
     return render_template('order_detail.html', order=order, status_map=status_map)
 
+
+# 🔥 [新增] 路由：确认收货
+@app.route('/order/<int:order_id>/confirm_receipt', methods=['POST'])
+def confirm_receipt(order_id):
+    """消费者：将订单状态从“待收货”(3)改为“已完成”(4)"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user_id = session['user_id']
+
+    order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
+
+    if order.status != 3:
+        flash('⚠️ 订单状态不是待收货，无法确认。')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    try:
+        order.status = 4  # 4: 已完成
+        db.session.commit()
+        flash(f'🎉 订单 #{order_id} 确认收货成功，交易完成！', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'❌ 操作失败: {e}', 'error')
+
+    return redirect(url_for('order_detail', order_id=order_id))
+
+
+# 🔥 [新增] 路由：修改订单地址
+@app.route('/order/<int:order_id>/edit_address', methods=['GET', 'POST'])
+def edit_order_address(order_id):
+    """
+    修改订单地址，仅限发货前（状态 1 或 2）
+    🔥 [修改] 权限逻辑：允许消费者和负责农户/管理员访问。
+    """
+    if 'user_id' not in session: return redirect(url_for('login'))
+    current_user = User.query.get(session['user_id'])
+
+    # 1. 查找订单
+    order = Order.query.get_or_404(order_id)
+
+    # 订单状态映射，用于模板显示
+    status_map = {
+        1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消',
+        6: '售后中', 7: '已退款/售后完成'
+    }
+
+    # 2. 🔥 [新增] 权限检查逻辑：允许消费者、负责农户、或管理员
+    has_access = False
+
+    # a. 消费者
+    if order.user_id == current_user.user_id:
+        has_access = True
+
+    # b. 农户/管理员
+    elif current_user.role in [1, 2]:
+        if current_user.role == 2:
+            has_access = True  # 管理员通过
+        else:
+            # 农户: 检查是否负责该订单
+            is_responsible = OrderItem.query.filter_by(order_id=order_id, farmer_id=current_user.user_id).first()
+            if is_responsible:
+                has_access = True
+
+    if not has_access:
+        flash('🚫 权限不足，无法修改该订单地址。', 'error')
+        if current_user.role == 1:
+            return redirect(url_for('farmer_orders'))
+        return redirect(url_for('profile'))
+
+    # 3. 状态检查：订单必须是 1 (待支付) 或 2 (待发货)
+    if order.status != 1 and order.status != 2:
+        flash('⚠️ 订单已发货或已处理，无法修改收货地址。')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    if request.method == 'POST':
+        new_address = request.form.get('address')
+        new_receiver_name = request.form.get('receiver_name')
+        new_receiver_phone = request.form.get('receiver_phone')
+
+        if not all([new_address, new_receiver_name, new_receiver_phone]):
+            flash('收货信息不能为空。', 'error')
+            # 失败路径也需要传递 status_map
+            order.status_map = status_map
+            return render_template('edit_order_address.html', order=order, status_map=status_map)
+
+        try:
+            order.address = new_address
+            order.receiver_name = new_receiver_name
+            order.receiver_phone = new_receiver_phone
+            db.session.commit()
+            flash('✅ 收货地址修改成功！')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'❌ 地址修改失败: {e}', 'error')
+
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    # 4. GET 路径渲染
+    # 必须将 status_map 临时附加到 order 对象上，以满足模板中 order.status_map 的调用
+    order.status_map = status_map
+    return render_template('edit_order_address.html', order=order, status_map=status_map)
+
+
+# 🔥 [新增] 路由：申请售后
+@app.route('/order/<int:order_id>/after_sales', methods=['POST'])
+def apply_for_after_sales(order_id):
+    """消费者：将订单状态从“已完成”(4)改为“售后中”(6)"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user_id = session['user_id']
+
+    order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
+    reason = request.form.get('after_sales_reason')
+
+    # 权限检查：订单必须是 4 (已完成) 才能申请售后
+    if order.status != 4:
+        flash('⚠️ 订单未完成，无法申请售后。')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    if not reason:
+        flash('⚠️ 请填写售后原因。', 'error')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    try:
+        order.status = 6  # 6: 售后中
+        order.after_sales_reason = reason  # 记录售后原因
+        db.session.commit()
+        flash(f'📢 订单 #{order_id} 已成功提交售后申请，请等待商家处理。', 'warning')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'❌ 售后申请失败: {e}', 'error')
+
+    return redirect(url_for('order_detail', order_id=order_id))
+
+
+# ----------------- 农户订单管理 (Farmer Order Management) -----------------
+
+@app.route('/farmer/orders', defaults={'status_filter': 'pending'})
+@app.route('/farmer/orders/<status_filter>')
+def farmer_orders(status_filter):
+    """
+    农户：查看订单列表 (支持按状态过滤)
+    status_filter: pending (待发货, status=2), shipped (已发货/待收货, status=3),
+                   aftersales (售后中, status=6), completed (已完成/售后结束, status=4/7)
+    """
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+
+    if not user or user.role != 1:
+        flash('🚫 权限不足')
+        return redirect(url_for('index'))
+
+    # 订单状态映射
+    status_map = {
+        1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消',
+        6: '售后中', 7: '已退款/售后完成'
+    }
+
+    # 1. 确定需要查询的订单状态
+    if status_filter == 'pending':
+        target_statuses = [2]  # 待发货
+        title = "待发货订单"
+    elif status_filter == 'shipped':
+        target_statuses = [3]  # 已发货 (待收货)
+        title = "已发货订单"
+    elif status_filter == 'completed':
+        target_statuses = [4, 7]  # 已完成, 售后完成
+        title = "已完成/售后结束订单"
+    elif status_filter == 'aftersales':
+        target_statuses = [6]  # 售后中
+        title = "售后中订单"
+    else:
+        # 默认回退到待发货
+        target_statuses = [2]
+        title = "待发货订单"
+        status_filter = 'pending'
+
+    # 2. 查找包含该农户商品的订单ID
+    order_ids = db.session.query(OrderItem.order_id).filter(
+        OrderItem.farmer_id == user.user_id
+    ).distinct().all()
+
+    unique_order_ids = [o[0] for o in order_ids]
+
+    # 3. 根据订单ID查询订单主表，并过滤状态
+    farmer_orders = Order.query.filter(
+        Order.order_id.in_(unique_order_ids),
+        Order.status.in_(target_statuses)
+    ).order_by(Order.order_date.desc()).all()
+
+    # 4. 统计所有状态的数量（用于顶部导航）
+    all_orders = Order.query.filter(Order.order_id.in_(unique_order_ids)).all()
+    count_map = {
+        'pending': sum(1 for o in all_orders if o.status == 2),
+        'shipped': sum(1 for o in all_orders if o.status == 3),
+        'completed': sum(1 for o in all_orders if o.status == 4 or o.status == 7),
+        'aftersales': sum(1 for o in all_orders if o.status == 6)
+    }
+
+    return render_template('farmer_orders.html',
+                           orders=farmer_orders,
+                           status_map=status_map,
+                           current_filter=status_filter,
+                           title=title,
+                           count_map=count_map)
+
+
+@app.route('/farmer/order/<int:order_id>/ship', methods=['POST'])
+def ship_order(order_id):
+    """农户：将订单状态从“待发货”(2)改为“待收货”(3)，接收发货单号"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+
+    if not user or user.role != 1:
+        flash('🚫 权限不足')
+        return redirect(url_for('index'))
+
+    tracking_number = request.form.get('tracking_number')
+
+    if not tracking_number:
+        flash('⚠️ 必须填写发货单号。', 'error')
+        return redirect(url_for('farmer_orders'))  # Redirect to the default view
+
+    order = Order.query.get_or_404(order_id)
+
+    if order.status != 2:
+        flash(f'⚠️ 订单 #{order_id} 状态不是待发货，无法操作。')
+        return redirect(url_for('farmer_orders'))
+
+    is_responsible = OrderItem.query.filter_by(order_id=order_id, farmer_id=user.user_id).first()
+
+    if not is_responsible:
+        flash(f'🚫 订单 #{order_id} 不包含您的商品，无权操作。')
+        return redirect(url_for('farmer_orders'))
+
+    try:
+        order.status = 3
+        order.tracking_number = tracking_number
+        db.session.commit()
+        flash(f'✅ 订单 #{order_id} 已成功发货 (单号: {tracking_number})！状态更新为“待收货”。', 'success')
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f'❌ 订单发货失败: {e}', 'error')
+
+    return redirect(url_for('farmer_orders', status_filter='shipped'))  # Redirect to shipped view
+
+
+# 🔥 [新增] 路由：处理售后申请 (同意退款/售后完成)
+@app.route('/farmer/order/<int:order_id>/handle_after_sales', methods=['POST'])
+def handle_after_sales(order_id):
+    """农户：处理售后申请，将订单状态从“售后中”(6)改为“已退款/售后完成”(7)"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user = User.query.get(session['user_id'])
+
+    if not user or user.role != 1:
+        flash('🚫 权限不足')
+        return redirect(url_for('index'))
+
+    order = Order.query.get_or_404(order_id)
+
+    if order.status != 6:  # 必须是售后中才能处理
+        flash(f'⚠️ 订单 #{order_id} 状态不是售后中，无法处理。')
+        return redirect(url_for('farmer_orders', status_filter='aftersales'))
+
+    is_responsible = OrderItem.query.filter_by(order_id=order_id, farmer_id=user.user_id).first()
+
+    if not is_responsible:
+        flash(f'🚫 订单 #{order_id} 不包含您的商品，无权操作。')
+        return redirect(url_for('farmer_orders', status_filter='aftersales'))
+
+    try:
+        order.status = 7  # 7: 已退款/售后完成
+        # 注意：实际业务中这里可能需要处理退款金额逻辑
+        db.session.commit()
+        flash(f'✅ 订单 #{order_id} 售后处理完成，状态更新为“已退款/售后完成”。', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'❌ 售后处理失败: {e}', 'error')
+
+    return redirect(url_for('farmer_orders', status_filter='completed'))
+
+
+# ----------------- 社区、管理员、登录等路由 (Other Routes) -----------------
 
 @app.route('/profile/favorites')
 def view_favorites():
@@ -1156,6 +1493,6 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
-if __name__ == '__main__':
 
+if __name__ == '__main__':
     app.run(debug=True, port=5000)

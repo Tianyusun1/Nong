@@ -31,7 +31,9 @@
                                 <span class="badge 
                                     {% if order.status == 1 %}bg-danger
                                     {% elif order.status == 2 %}bg-warning text-dark
+                                    {% elif order.status == 3 %}bg-primary
                                     {% elif order.status == 4 %}bg-success
+                                    {% elif order.status == 6 %}bg-danger
                                     {% else %}bg-secondary{% endif %}">
                                     {{ status_map[order.status] }}
                                 </span>
@@ -40,6 +42,13 @@
                                 <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-sm btn-outline-info">订单详情</a>
                                 {% if order.status == 1 %}
                                 <button class="btn btn-sm btn-success">去支付</button>
+                                {% elif order.status == 3 %}
+                                <form method="POST" action="{{ url_for('confirm_receipt', order_id=order.order_id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-primary ms-1"
+                                            onclick="return confirm('确认收货订单 #{{ order.order_id }} 吗？')">
+                                        确认收货
+                                    </button>
+                                </form>
                                 {% endif %}
                             </td>
                         </tr>

@@ -1,3 +1,5 @@
+# tianyusun1/test/Test-Tianyusun1-patch-1/models.py
+
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
@@ -170,7 +172,7 @@ class Order(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
     total_amount = db.Column(db.Numeric(10, 2), nullable=False)
 
-    # 状态: 1-待支付, 2-待发货, 3-待收货, 4-已完成, 5-已取消
+    # 状态: 1-待支付, 2-待发货, 3-待收货, 4-已完成, 5-已取消, 🔥 6-售后中, 7-已退款/售后完成
     status = db.Column(db.Integer, default=1)
     order_date = db.Column(db.DateTime, default=datetime.now)
 
@@ -180,6 +182,10 @@ class Order(db.Model):
 
     # 🔥 [新增] 订单运费
     shipping_cost = db.Column(db.Numeric(10, 2), default=0.00)
+
+    # 🔥 [新增] 追踪/发货信息
+    tracking_number = db.Column(db.String(100))  # 发货单号
+    after_sales_reason = db.Column(db.Text)  # 售后原因
 
     items = db.relationship('OrderItem', backref='order', lazy=True)
 
