@@ -25,8 +25,14 @@
                         <select name="product_id" class="form-select">
                             <option value="none">-- 不关联任何商品 --</option>
                             {% for product in my_products %}
+
+                                {% set min_price = 0 %}
+                                {% if product.skus %}
+                                    {% set min_price = product.skus | map(attribute='price') | min %}
+                                {% endif %}
+
                                 <option value="{{ product.product_id }}">
-                                    {{ product.name }} (￥{{ product.price }})
+                                    {{ product.name }} (￥{{ min_price | round(2) }} 起)
                                 </option>
                             {% endfor %}
                         </select>

@@ -35,7 +35,17 @@
 
                     <div class="flex-grow-1">
                         <h6 class="mb-0 fw-bold text-truncate" style="max-width: 200px;">{{ post.related_product.name }}</h6>
-                        <small class="text-danger fw-bold">￥{{ post.related_product.price }}</small>
+                        {% set min_price = 0 %}
+                        {% if post.related_product.skus %}
+                            {% set min_price = post.related_product.skus | map(attribute='price') | min %}
+                        {% endif %}
+                        <small class="text-danger fw-bold">
+                            {% if min_price > 0 %}
+                                ￥{{ min_price | round(2) }} (起)
+                            {% else %}
+                                暂无价格
+                            {% endif %}
+                        </small>
                     </div>
 
                     <a href="{{ url_for('product_detail', product_id=post.related_product.product_id) }}" class="btn btn-sm btn-success">

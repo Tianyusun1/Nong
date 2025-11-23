@@ -61,11 +61,11 @@
 
                 {% if user.role == 1 and user.status == 1 %}
                     <h5 class="card-title text-success mb-4">🌾 我的农场管理</h5>
-                    <div class="row text-center">
+                    <div class="row text-center mb-4">
                         <div class="col-md-4">
                             <div class="border rounded p-4 bg-light h-100">
                                 <h3 class="fw-bold text-success">{{ user.products|length }}</h3>
-                                <p class="text-muted">在售商品</p>
+                                <p class="text-muted">在售/已下架商品总数</p>
 
                                 <div class="d-grid gap-2">
                                     <a href="{{ url_for('publish_product') }}" class="btn btn-success mt-2">🌱 发布新商品</a>
@@ -87,6 +87,71 @@
                             </div>
                         </div>
                     </div>
+
+                    <h5 class="card-title text-success mb-3">📦 我的农产品列表</h5>
+                    <table class="table table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th>商品名称</th>
+                                <th>价格 (起)</th>
+                                <th>当前库存</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for product in user.products %}
+                            <tr>
+                                <td><a href="{{ url_for('product_detail', product_id=product.product_id) }}" class="text-dark">{{ product.name }}</a></td>
+
+                                <td>
+                                    {% set min_price = 0 %}
+                                    {% if product.skus %}
+                                        {% set min_price = product.skus | map(attribute='price') | min %}
+                                    {% endif %}
+
+                                    {% if min_price > 0 %}
+                                        ￥{{ min_price | round(2) }}
+                                    {% else %}
+                                        <span class="text-danger">无规格价</span>
+                                    {% endif %}
+                                </td>
+
+                                <td>
+                                    {% set total_stock = product.skus | map(attribute='stock') | sum %}
+                                    {{ total_stock or 0 }}
+                                </td>
+
+                                <td>
+                                    {% if product.is_on_sale %}
+                                        <span class="badge bg-success">✅ 上架中</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">❌ 已下架</span>
+                                    {% endif %}
+                                </td>
+
+                                <td>
+                                    <a href="{{ url_for('toggle_product_status', product_id=product.product_id) }}"
+                                       class="btn btn-sm {% if product.is_on_sale %}btn-outline-danger{% else %}btn-outline-success{% endif %}">
+                                        {{ '下架' if product.is_on_sale else '重新上架' }}
+                                    </a>
+                                    <a href="{{ url_for('edit_product', product_id=product.product_id) }}"
+                                       class="btn btn-sm btn-outline-primary ms-1">
+                                        编辑
+                                    </a>
+                                    <form method="POST" action="{{ url_for('delete_product', product_id=product.product_id) }}" class="d-inline">
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-dark ms-1"
+                                                onclick="return confirm('警告：此操作不可逆，将永久删除商品及其所有数据（包括规格、社区帖子、收藏、日志等）。确定要删除吗？')">
+                                            🗑️ 删除
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+
 
                 {% else %}
                     {% if user.role == 1 and user.status != 1 %}

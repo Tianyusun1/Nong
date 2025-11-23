@@ -31,7 +31,7 @@ class User(db.Model):
     products = db.relationship('Product', backref='farmer', lazy=True)
     posts = db.relationship('CommunityPost', backref='author', lazy=True)
 
-    # 订单与购物车关联
+    # 订单与购物车关联 (现在关联到 SKU)
     cart_items = db.relationship('CartItem', backref='user', lazy=True)
     orders = db.relationship('Order', backref='customer', lazy=True)
 
@@ -50,8 +50,17 @@ class FarmerInfo(db.Model):
 # 2. 商品与社区体系 (Product & Community)
 # ==========================================
 
+# 🔥 [新增] 运费模板表
+class ShippingTemplate(db.Model):
+    """运费模板表：用于计算商品的运费"""
+    __tablename__ = 'T_Shipping_Template'
+    template_id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    base_cost = db.Column(db.Numeric(10, 2), default=10.00)  # 基础运费，后续可扩展为按地区/重量计算
+
+
 class Product(db.Model):
-    """农产品表"""
+    """农产品主表"""
     __tablename__ = 'T_Product'
     product_id = db.Column(db.Integer, primary_key=True)
     farmer_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
@@ -59,10 +68,35 @@ class Product(db.Model):
     name = db.Column(db.String(100), nullable=False)  # 商品名称
     category = db.Column(db.String(50))  # 分类
     origin = db.Column(db.String(100))  # 产地
-    price = db.Column(db.Numeric(10, 2), nullable=False)  # 价格
-    stock = db.Column(db.Integer, default=0)  # 库存
+
+    # 🔥 [修改] 移除 price 和 stock，将其移至 ProductSKU
+    # price = db.Column(db.Numeric(10, 2), nullable=False)
+    # stock = db.Column(db.Integer, default=0)
+
     description = db.Column(db.Text)  # 详细描述
     image_url = db.Column(db.String(255))  # 图片链接
+
+    # 🔥 [新增] 上下架状态
+    is_on_sale = db.Column(db.Boolean, default=True)  # True=上架, False=下架
+
+    # 🔥 [新增] 关联运费模板
+    shipping_template_id = db.Column(db.Integer, db.ForeignKey('T_Shipping_Template.template_id'), nullable=True)
+    shipping_template = db.relationship('ShippingTemplate')
+
+    # 🔥 [新增] SKU 关联
+    skus = db.relationship('ProductSKU', backref='product', lazy=True)
+
+
+# 🔥 [新增] 商品规格 SKU 表
+class ProductSKU(db.Model):
+    """商品规格表：存储具体的价格和库存信息"""
+    __tablename__ = 'T_Product_SKU'
+    sku_id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
+
+    spec_name = db.Column(db.String(100), nullable=False)  # 例如: '大果 5斤装'
+    price = db.Column(db.Numeric(10, 2), nullable=False)  # SKU 价格
+    stock = db.Column(db.Integer, default=0)  # SKU 库存
 
 
 class CommunityPost(db.Model):
@@ -84,6 +118,7 @@ class CommunityPost(db.Model):
 
 # ==========================================
 # 3. 推荐系统核心数据 (CF Engine Data)
+# 注意：BehaviorLog 和 ItemSimilarity 暂时保留关联 Product ID
 # ==========================================
 
 class BehaviorLog(db.Model):
@@ -117,12 +152,15 @@ class CartItem(db.Model):
     __tablename__ = 'T_Cart_Item'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
+    # 🔥 [修改] 从关联 Product 改为关联 ProductSKU
+    sku_id = db.Column(db.Integer, db.ForeignKey('T_Product_SKU.sku_id'), nullable=False)
     quantity = db.Column(db.Integer, default=1)
 
-    product = db.relationship('Product')
+    # product = db.relationship('Product') # 移除
+    sku = db.relationship('ProductSKU')  # 新增 SKU 关联
 
-    __table_args__ = (db.UniqueConstraint('user_id', 'product_id', name='_user_product_uc'),)
+    # 🔥 [修改] 唯一约束使用 sku_id
+    __table_args__ = (db.UniqueConstraint('user_id', 'sku_id', name='_user_sku_uc'),)
 
 
 class Order(db.Model):
@@ -140,6 +178,9 @@ class Order(db.Model):
     receiver_name = db.Column(db.String(50))
     receiver_phone = db.Column(db.String(20))
 
+    # 🔥 [新增] 订单运费
+    shipping_cost = db.Column(db.Numeric(10, 2), default=0.00)
+
     items = db.relationship('OrderItem', backref='order', lazy=True)
 
 
@@ -148,10 +189,15 @@ class OrderItem(db.Model):
     __tablename__ = 'T_Order_Item'
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('T_Order.order_id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)
+    # 🔥 [修改] 从关联 Product 改为关联 ProductSKU
+    sku_id = db.Column(db.Integer, db.ForeignKey('T_Product_SKU.sku_id'), nullable=False)
     farmer_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
+    # 保留 product_id 和 product_name 作为非外键的历史记录，方便查阅
+    product_id = db.Column(db.Integer, nullable=False)
+    product_name = db.Column(db.String(100))
 
     quantity = db.Column(db.Integer, nullable=False)
-    price = db.Column(db.Numeric(10, 2), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False)  # 记录成交价
 
-    product = db.relationship('Product')
+    # product = db.relationship('Product') # 移除
+    sku = db.relationship('ProductSKU')  # 新增 SKU 关联

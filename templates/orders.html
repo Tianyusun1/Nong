@@ -37,7 +37,7 @@
                                 </span>
                             </td>
                             <td>
-                                <a href="#" class="btn btn-sm btn-outline-info">订单详情</a>
+                                <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-sm btn-outline-info">订单详情</a>
                                 {% if order.status == 1 %}
                                 <button class="btn btn-sm btn-success">去支付</button>
                                 {% endif %}

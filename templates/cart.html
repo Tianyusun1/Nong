@@ -12,7 +12,7 @@
                     <thead class="table-light">
                         <tr>
                             <th scope="col" style="width: 15%;">商品图片</th>
-                            <th scope="col" style="width: 35%;">商品名称</th>
+                            <th scope="col" style="width: 35%;">商品名称/规格</th>
                             <th scope="col" style="width: 15%;">单价</th>
                             <th scope="col" style="width: 15%;">数量</th>
                             <th scope="col" style="width: 10%;">小计</th>
@@ -23,36 +23,35 @@
                         {% for item in cart_items %}
                         <tr>
                             <td>
-                                <a href="{{ url_for('product_detail', product_id=item.product_id) }}">
-                                    {% if item.product.image_url %}
-                                        <img src="{{ item.product.image_url }}" alt="{{ item.product.name }}" class="img-fluid rounded" style="width: 70px; height: 70px; object-fit: cover;">
+                                <a href="{{ url_for('product_detail', product_id=item.sku.product.product_id) }}">
+                                    {% if item.sku.product.image_url %}
+                                        <img src="{{ item.sku.product.image_url }}" alt="{{ item.sku.product.name }}" class="img-fluid rounded" style="width: 70px; height: 70px; object-fit: cover;">
                                     {% else %}
                                         <div class="bg-light text-center rounded" style="width: 70px; height: 70px; line-height: 70px;">🖼️</div>
                                     {% endif %}
                                 </a>
                             </td>
                             <td>
-                                <a href="{{ url_for('product_detail', product_id=item.product_id) }}" class="text-dark fw-bold text-decoration-none">
-                                    {{ item.product.name }}
+                                <a href="{{ url_for('product_detail', product_id=item.sku.product.product_id) }}" class="text-dark fw-bold text-decoration-none">
+                                    {{ item.sku.product.name }}
                                 </a>
-                                <div class="small text-muted">农户: {{ item.product.farmer.username }}</div>
+                                <div class="small text-success fw-bold">规格: {{ item.sku.spec_name }}</div>
+                                <div class="small text-muted">农户: {{ item.sku.product.farmer.username }}</div>
                             </td>
-                            <td>￥{{ item.product.price }}</td>
+                            <td>￥{{ item.sku.price }}</td>
                             <td>
-                                <!-- 数量更新表单 -->
                                 <form action="{{ url_for('update_cart') }}" method="POST" class="d-flex align-items-center">
                                     <input type="hidden" name="item_id" value="{{ item.id }}">
-                                    <input type="number" 
-                                           name="quantity" 
-                                           value="{{ item.quantity }}" 
-                                           min="1" 
-                                           max="{{ item.product.stock }}"
-                                           class="form-control form-control-sm me-2" 
+                                    <input type="number"
+                                           name="quantity"
+                                           value="{{ item.quantity }}"
+                                           min="1"
+                                           max="{{ item.sku.stock }}" class="form-control form-control-sm me-2"
                                            style="width: 60px;"
                                            onchange="this.form.submit()">
                                 </form>
                             </td>
-                            <td><span class="text-danger fw-bold">￥{{ (item.product.price * item.quantity)|round(2) }}</span></td>
+                            <td><span class="text-danger fw-bold">￥{{ (item.sku.price * item.quantity)|round(2) }}</span></td>
                             <td>
                                 <a href="{{ url_for('remove_from_cart', item_id=item.id) }}" class="btn btn-sm btn-outline-danger">移除</a>
                             </td>
@@ -63,7 +62,6 @@
             </div>
         </div>
 
-        <!-- 结算区域 -->
         <div class="row justify-content-end">
             <div class="col-md-5">
                 <div class="card p-3 shadow-lg bg-white">
@@ -78,7 +76,6 @@
         </div>
 
         {% else %}
-        <!-- 购物车为空状态 -->
         <div class="text-center py-5 border rounded bg-white shadow-sm">
             <div class="display-1 text-muted">🧺</div>
             <p class="lead">您的购物车空空如也。</p>
