@@ -23,14 +23,16 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav me-auto">
-                    <!-- 修正导航栏链接，首页指向市集 -->
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">农产市集</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('community') }}">乡村社区</a></li>
                 </ul>
                 <ul class="navbar-nav">
-                    <!-- 🔥 新增购物车链接 🔥 -->
                     <li class="nav-item">
                         <a class="nav-link me-2" href="{{ url_for('view_cart') }}">🛒 购物车</a>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link me-2" href="{{ url_for('chat_list') }}">💬 消息</a>
                     </li>
 
                     {% if current_user %}
@@ -46,7 +48,6 @@
     </nav>
 
     <div class="container" style="margin-top: 80px;">
-        <!-- 消息提示区 -->
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}

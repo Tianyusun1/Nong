@@ -108,7 +108,15 @@
                     <div>
                         <p class="mb-0 fw-bold">发布农户：{{ product.farmer.username }}</p>
                         <small class="text-muted">实名认证 | 产地直供</small>
-                    </div>
+
+                        {% if current_user and current_user.user_id != product.farmer.user_id %}
+                        <form action="{{ url_for('start_chat', target_user_id=product.farmer_id) }}" method="POST" class="mt-2">
+                             <button type="submit" class="btn btn-sm btn-outline-info">
+                                 ✉️ 联系TA
+                             </button>
+                        </form>
+                        {% endif %}
+                        </div>
                 </div>
 
             </div>

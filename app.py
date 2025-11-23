@@ -1,40 +1,35 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from config import Config
-# 🔥 [新增] 导入 Decimal 类型
 from decimal import Decimal
-# 🔥 [修改] 增加 func 导入，用于聚合统计
 from sqlalchemy import or_, func
-# 导入所有模型
-# 🔥 [修改] 导入新增模型 ProductSKU, ShippingTemplate
 from models import db, User, CommunityPost, FarmerInfo, Product, \
-    BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem, ProductSKU, ShippingTemplate
+    BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem, ProductSKU, ShippingTemplate, \
+    Conversation, Message
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
-# 🔥 [新增] 导入推荐引擎核心类
 from recommend import RecommenderEngine
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# 初始化数据库
 db.init_app(app)
 
-# 🔥 [新增] 初始化推荐引擎
-# 注意：RecommenderEngine 内部需要使用 app_context，传入 app 实例
+socketio = SocketIO(app, cors_allowed_origins="*")
+
 recommender = RecommenderEngine(app)
 
 # ==========================================
-# 🔥 图片上传配置与目录检测
+#
 # ==========================================
-# 确保配置中有 UPLOAD_FOLDER
 if not hasattr(app.config, 'UPLOAD_FOLDER') or not app.config['UPLOAD_FOLDER']:
     BASE_DIR = os.path.abspath(os.path.dirname(__file__))
     app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'static', 'uploads')
 
-# 自动创建上传目录
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     try:
         os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -43,18 +38,14 @@ if not os.path.exists(app.config['UPLOAD_FOLDER']):
         print(f"❌ 创建上传目录失败: {e}")
 
 
-# 辅助函数：检查文件扩展名
 def allowed_file(filename):
     allowed_exts = app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif'})
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in allowed_exts
 
 
-# 🔥 [新增] 初始化函数：确保默认运费模板存在（修复外键约束失败问题）
 def init_shipping_templates():
-    # 检查默认模板是否存在
     if ShippingTemplate.query.count() == 0:
-        # 注意：这里使用 commit=False 来防止在 create_all 块内提前提交
         default_template = ShippingTemplate(template_id=1, name="默认运费", base_cost=10.00)
         cold_chain_template = ShippingTemplate(template_id=2, name="冷链运费", base_cost=25.00)
 
@@ -64,21 +55,19 @@ def init_shipping_templates():
 
 
 # ==========================================
-# 🔥 自动建表逻辑
+#
 # ==========================================
 with app.app_context():
     try:
         db.create_all()
         print("✅ 数据库表已检测/创建成功！")
 
-        # 🔥 [新增] 调用初始化函数，确保运费模板数据存在
         init_shipping_templates()
 
     except Exception as e:
         print(f"❌ 数据库连接失败，请检查 config.py 里的密码: {e}")
 
 
-# --- 上下文处理器 ---
 @app.context_processor
 def inject_user():
     user = None
@@ -87,17 +76,14 @@ def inject_user():
     return dict(current_user=user)
 
 
-# 🔥 [修改] 运费计算占位符 (返回 Decimal)
 def calculate_shipping_cost(cart_items, address):
     """
     实际的运费计算需要根据收货地址、商品重量/件数、运费模板来计算。
     这里为简化，统一返回一个基础运费。
     """
-    # 🔥 [修复] 返回 Decimal 类型
     if not cart_items:
         return Decimal('0.00')
 
-    # 未来可扩展：根据 cart_items[0].sku.product.shipping_template 决定运费
     return Decimal('10.00')
 
 
@@ -110,12 +96,15 @@ def index():
     """商城首页：已接入核心推荐算法"""
     q = request.args.get('q', '')
 
-    # 🔥 [修改] 基础查询：仅筛选已上架商品
+    try:
+        locals().get('chat_list')
+    except Exception:
+        pass
+
     base_query = Product.query.filter(Product.is_on_sale == True)
 
-    # 1. 如果有搜索词，优先处理搜索
     if q:
-        products = base_query.filter(  # 🔥 [修改] 从 base_query 开始过滤
+        products = base_query.filter(
             or_(
                 Product.name.contains(q),
                 Product.category.contains(q),
@@ -124,32 +113,23 @@ def index():
         ).all()
         recommendation_msg = f"🔍 搜索结果: '{q}'"
 
-    # 2. 如果没有搜索词，尝试调用推荐算法
     else:
-        # 默认回退方案（热门/最新）
-        fallback_products = base_query.order_by(Product.product_id.desc()).all()  # 🔥 [修改] 从 base_query 开始排序
+        fallback_products = base_query.order_by(Product.product_id.desc()).all()
         products = fallback_products
         recommendation_msg = "🔥 热门农产品推荐"
 
-        # 仅对已登录用户尝试个性化推荐
         if 'user_id' in session:
             try:
-                # 调用 recommend.py 中的算法获取推荐 ID 列表
                 recommended_ids = recommender.get_recommendations(session['user_id'])
 
                 if recommended_ids:
-                    # 根据 ID 获取商品详情
-                    # 注意：SQL查询结果顺序不一定按 IN 列表排序，需要手动重排
-                    # 🔥 [修改] 增加 is_on_sale 过滤，只推荐上架商品
                     rec_products = Product.query.filter(
                         Product.product_id.in_(recommended_ids),
                         Product.is_on_sale == True
                     ).all()
 
-                    # 建立 ID -> Product 映射
                     product_map = {p.product_id: p for p in rec_products}
 
-                    # 按推荐分数顺序构建列表
                     sorted_products = [product_map[pid] for pid in recommended_ids if pid in product_map]
 
                     if sorted_products:
@@ -157,7 +137,6 @@ def index():
                         recommendation_msg = "✨ 猜你喜欢 (为您定制)"
             except Exception as e:
                 print(f"⚠️ 推荐算法调用失败，已回退到热门列表: {e}")
-                # 出错时保持默认的 products (热门) 不变
 
     return render_template('index.html', products=products, search_query=q, recommendation_msg=recommendation_msg)
 
@@ -167,24 +146,21 @@ def product_detail(product_id):
     """商品详情页：接入 Item-Based 协同过滤 -> 热门商品兜底 + 收藏状态检查"""
     product = Product.query.get_or_404(product_id)
 
-    # 🔥 [新增] 检查商品是否上架（非农户/管理员用户）
     current_user = User.query.get(session.get('user_id'))
     if not product.is_on_sale and (not current_user or current_user.role == 0):
         flash('🚫 该商品已下架或正在维护中。')
         return redirect(url_for('index'))
 
-    # 1. 检查用户是否已收藏 (用于前端显示实心/空心星星)
     has_favorited = False
     if 'user_id' in session:
         fav_log = BehaviorLog.query.filter_by(
             user_id=session['user_id'],
             product_id=product_id,
-            behavior_type=2  # 2 代表收藏
+            behavior_type=2
         ).first()
         if fav_log:
             has_favorited = True
 
-        # 记录用户浏览行为 (类型 1)
         try:
             new_log = BehaviorLog(
                 user_id=session['user_id'],
@@ -196,10 +172,8 @@ def product_detail(product_id):
         except:
             pass
 
-    # 2. 策略一：尝试获取“协同过滤”推荐 (基于物品相似度)
     recommendations = []
 
-    # 查询相似度表
     similar_items = ItemSimilarity.query.filter(
         or_(ItemSimilarity.item_a_id == product_id, ItemSimilarity.item_b_id == product_id)
     ).order_by(ItemSimilarity.similarity_score.desc()).limit(4).all()
@@ -207,13 +181,10 @@ def product_detail(product_id):
     if similar_items:
         related_ids = []
         for item in similar_items:
-            # 提取另一端的商品ID
             target_id = item.item_b_id if item.item_a_id == product_id else item.item_a_id
             related_ids.append(target_id)
 
         if related_ids:
-            # 按ID获取商品并在内存中保持相似度排序
-            # 🔥 [修改] 增加 is_on_sale 过滤
             products_unsorted = Product.query.filter(
                 Product.product_id.in_(related_ids),
                 Product.is_on_sale == True
@@ -221,16 +192,13 @@ def product_detail(product_id):
             product_map = {p.product_id: p for p in products_unsorted}
             recommendations = [product_map[pid] for pid in related_ids if pid in product_map]
 
-    # 3. 策略二 (热门兜底)：如果算法无结果，推荐“收藏/购买”最多的商品
     if not recommendations:
-        # SQL逻辑: 统计 behavior_type 为 2(收藏) 或 4(购买) 的记录数，按降序取 Top 4
-        # Note: 此时 Top 4 可能会包含已下架商品，但在下一步过滤掉。
         top_products_query = db.session.query(
             BehaviorLog.product_id,
             func.count(BehaviorLog.log_id).label('count')
         ).filter(
-            BehaviorLog.behavior_type.in_([2, 4]),  # 只统计高权重行为
-            BehaviorLog.product_id != product_id  # 排除当前商品自己
+            BehaviorLog.behavior_type.in_([2, 4]),
+            BehaviorLog.product_id != product_id
         ).group_by(
             BehaviorLog.product_id
         ).order_by(
@@ -239,7 +207,6 @@ def product_detail(product_id):
 
         if top_products_query:
             top_ids = [r.product_id for r in top_products_query]
-            # 🔥 [修改] 增加 is_on_sale 过滤
             products_unsorted = Product.query.filter(
                 Product.product_id.in_(top_ids),
                 Product.is_on_sale == True
@@ -247,30 +214,26 @@ def product_detail(product_id):
             product_map = {p.product_id: p for p in products_unsorted}
             recommendations = [product_map[pid] for pid in top_ids if pid in product_map]
 
-    # 4. 策略三 (冷启动兜底)：如果连热门数据都没有，推荐同分类或最新商品
     if not recommendations:
-        # 优先同分类
-        recommendations = Product.query.filter(  # 🔥 [修改] 增加 is_on_sale 过滤
+        recommendations = Product.query.filter(
             Product.category == product.category,
             Product.product_id != product_id,
             Product.is_on_sale == True
         ).limit(4).all()
 
     if not recommendations:
-        # 最后尝试全站最新
-        recommendations = Product.query.filter(  # 🔥 [修改] 增加 is_on_sale 过滤
+        recommendations = Product.query.filter(
             Product.product_id != product_id,
             Product.is_on_sale == True
         ).order_by(Product.product_id.desc()).limit(4).all()
 
-    # 🔥 [新增] 查询所有关联 SKU
     product_skus = ProductSKU.query.filter_by(product_id=product_id).order_by(ProductSKU.price.asc()).all()
 
     return render_template('product_detail.html',
                            product=product,
                            recommendations=recommendations,
                            has_favorited=has_favorited,
-                           product_skus=product_skus)  # 🔥 [修改] 传递 SKUs
+                           product_skus=product_skus)
 
 
 # ==========================================
@@ -283,7 +246,6 @@ def community():
     return render_template('community.html', posts=posts)
 
 
-# 🔥 [新增] 删除帖子路由
 @app.route('/community/delete/<int:post_id>', methods=['POST'])
 def delete_post(post_id):
     """删除社区帖子，仅限作者或管理员操作"""
@@ -294,7 +256,6 @@ def delete_post(post_id):
     user = User.query.get(session['user_id'])
     post = CommunityPost.query.get_or_404(post_id)
 
-    # 权限检查：必须是帖子作者 (post.user_id) 或管理员 (role=2)
     if post.user_id != user.user_id and user.role != 2:
         flash('🚫 权限不足，无法删除此帖子。', 'error')
         return redirect(url_for('community'))
@@ -321,18 +282,15 @@ def view_cart():
         flash('请先登录以查看购物车。')
         return redirect(url_for('login'))
 
-    # 查询当前用户购物车中的所有 SKU 项
     cart_items = CartItem.query.filter_by(user_id=session['user_id']).all()
 
-    # 🔥 [修改] 总价计算基于 item.sku.price
     total_price = sum(item.sku.price * item.quantity for item in cart_items)
 
     return render_template('cart.html', cart_items=cart_items, total_price=total_price)
 
 
-# @app.route('/cart/add/<int:product_id>', methods=['POST']) # Original
-@app.route('/cart/add/<int:sku_id>', methods=['POST'])  # 🔥 [修改] 接收 sku_id
-def add_to_cart(sku_id):  # 🔥 [修改] 接收 sku_id
+@app.route('/cart/add/<int:sku_id>', methods=['POST'])
+def add_to_cart(sku_id):
     """添加 SKU 到购物车"""
     if 'user_id' not in session:
         flash('请先登录才能添加商品到购物车。')
@@ -347,32 +305,27 @@ def add_to_cart(sku_id):  # 🔥 [修改] 接收 sku_id
         flash('数量必须大于零。', 'error')
         return redirect(url_for('product_detail', product_id=sku.product_id))
 
-    # 查找该 SKU 是否已在购物车
-    cart_item = CartItem.query.filter_by(user_id=user_id, sku_id=sku_id).first()  # 🔥 [修改] 查询 sku_id
+    cart_item = CartItem.query.filter_by(user_id=user_id, sku_id=sku_id).first()
 
     try:
-        # 🔥 [新增] 库存检查 (SKU 级别)
         current_in_cart = cart_item.quantity if cart_item else 0
         if sku.stock < quantity + current_in_cart:
             flash(f'⚠️ 库存不足，当前库存为 {sku.stock}。', 'error')
             return redirect(url_for('product_detail', product_id=sku.product_id))
 
         if cart_item:
-            # 如果存在，更新数量
             cart_item.quantity += quantity
         else:
-            # 如果不存在，创建新的购物车项
             new_cart_item = CartItem(
                 user_id=user_id,
-                sku_id=sku_id,  # 🔥 [修改] 使用 sku_id
+                sku_id=sku_id,
                 quantity=quantity
             )
             db.session.add(new_cart_item)
 
         db.session.commit()
 
-        # 记录加购行为 (BehaviorLog 仍使用 Product ID)
-        product_id = sku.product_id  # 从 SKU 获取 Product ID
+        product_id = sku.product_id
         new_log = BehaviorLog(user_id=user_id, product_id=product_id, behavior_type=3)
         db.session.add(new_log)
         db.session.commit()
@@ -398,7 +351,6 @@ def update_cart():
 
     if cart_item and new_quantity is not None:
         if new_quantity > 0:
-            # 🔥 [修改] 检查库存，使用 item.sku.stock
             if new_quantity > cart_item.sku.stock:
                 flash(f'⚠️ 数量不能超过库存 ({cart_item.sku.stock})。', 'error')
             else:
@@ -445,19 +397,17 @@ def checkout():
         flash("购物车为空，无法结算。", 'error')
         return redirect(url_for('index'))
 
-    # 🔥 [修改] 总价计算基于 item.sku.price (返回 Decimal)
     total_price = sum(item.sku.price * item.quantity for item in cart_items)
 
-    # 🔥 [新增] 运费计算 (返回 Decimal)
     shipping_cost = calculate_shipping_cost(cart_items, None)
 
-    final_total = total_price + shipping_cost  # 最终总价 = 商品总价 + 运费
+    final_total = total_price + shipping_cost
 
     return render_template('checkout.html',
                            cart_items=cart_items,
                            total_price=total_price,
-                           shipping_cost=shipping_cost,  # 🔥 [新增] 传递运费
-                           final_total=final_total)  # 🔥 [新增] 传递最终总价
+                           shipping_cost=shipping_cost,
+                           final_total=final_total)
 
 
 @app.route('/place_order', methods=['POST'])
@@ -486,7 +436,6 @@ def place_order():
         return redirect(url_for('view_cart'))
 
     try:
-        # 🔥 [修正] 将表单中的总金额转换为 Decimal 进行精确计算
         total_amount_from_form = Decimal(total_amount_str)
     except Exception:
         flash("订单无效: 金额格式错误。", 'error')
@@ -496,12 +445,10 @@ def place_order():
         flash("订单无效: 金额必须大于零。", 'error')
         return redirect(url_for('checkout'))
 
-    # 🔥 [新增] 后端重新计算运费和总价 (使用 Decimal)
     goods_total = sum(item.sku.price * item.quantity for item in cart_items)
     shipping_cost = calculate_shipping_cost(cart_items, address)
     calculated_total = goods_total + shipping_cost
 
-    # 验证：直接用 Decimal 进行比较
     if abs(calculated_total - total_amount_from_form) > Decimal('0.01'):
         flash("❌ 订单金额校验失败，请重新结算。", 'error')
         return redirect(url_for('checkout'))
@@ -510,8 +457,8 @@ def place_order():
         # 2. 创建订单主表记录
         new_order = Order(
             user_id=user_id,
-            total_amount=calculated_total,  # 🔥 [修改] 使用后端计算的 Decimal 总额
-            shipping_cost=shipping_cost,  # 🔥 [新增] 记录 Decimal 运费
+            total_amount=calculated_total,
+            shipping_cost=shipping_cost,
             receiver_name=receiver_name,
             receiver_phone=receiver_phone,
             address=address,
@@ -522,15 +469,15 @@ def place_order():
 
         # 3. 遍历购物车，创建订单详情记录，并记录购买行为
         for item in cart_items:
-            sku = item.sku  # 获取当前购物车项关联的 SKU
+            sku = item.sku
 
-            # 🔥 [修改] 检查库存 (SKU 级别)，并使用 with_for_update 锁定库存行（防止超卖）
+            # 检查库存 (SKU 级别)，并使用 with_for_update 锁定库存行（防止超卖）
             sku_lock = ProductSKU.query.filter_by(sku_id=sku.sku_id).with_for_update().first()
 
             if sku_lock.stock < item.quantity:
                 raise ValueError(f"商品 {sku_lock.product.name} ({sku_lock.spec_name}) 库存不足。")
 
-            product = sku_lock.product  # Parent product
+            product = sku_lock.product
 
             # 创建订单详情项 (基于 SKU)
             new_order_item = OrderItem(
@@ -579,7 +526,6 @@ def profile():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = User.query.get(session['user_id'])
 
-    # 🔥 [新增] 农户待发货订单数量计算
     pending_orders_count = 0
     if user and user.role == 1:
         # 查找包含该农户商品的订单ID，且订单状态为“待发货”(status=2)
@@ -594,7 +540,7 @@ def profile():
             Order.status == 2
         ).count()
 
-    return render_template('profile.html', user=user, pending_orders_count=pending_orders_count)  #
+    return render_template('profile.html', user=user, pending_orders_count=pending_orders_count)
 
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
@@ -620,7 +566,6 @@ def edit_profile():
         flash('✅ 资料修改成功！')
         return redirect(url_for('profile'))
 
-    # 🔥 [修复] 渲染正确的模板：edit_profile.html
     return render_template('edit_profile.html', user=user)
 
 
@@ -630,7 +575,6 @@ def publish_product():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = User.query.get(session['user_id'])
 
-    # 权限检查
     if not user or user.role != 1 or user.status != 1:
         flash('❌ 无权发布，请等待审核。')
         return redirect(url_for('profile'))
@@ -650,11 +594,10 @@ def publish_product():
             if not image_url:
                 image_url = request.form.get('image_url')
 
-            # 🔥 [新增] 接收规格信息和运费模板ID
             spec_name = request.form.get('spec_name')
             price = request.form.get('price', type=float)
             stock = request.form.get('stock', type=int)
-            shipping_template_id = request.form.get('shipping_template_id', type=int)  # 新增
+            shipping_template_id = request.form.get('shipping_template_id', type=int)
 
             if not price or price <= 0 or stock is None or stock < 0 or not spec_name:
                 raise ValueError("必须提供有效价格、库存和规格名称。")
@@ -667,15 +610,15 @@ def publish_product():
                 origin=request.form.get('origin'),
                 description=request.form.get('description'),
                 image_url=image_url,
-                shipping_template_id=shipping_template_id  # 新增
+                shipping_template_id=shipping_template_id
             )
             db.session.add(new_product)
-            db.session.flush()  # 立即获取 product_id
+            db.session.flush()
 
-            # 🔥 [新增] 创建默认 SKU
+            # 创建默认 SKU
             new_sku = ProductSKU(
                 product_id=new_product.product_id,
-                spec_name=spec_name,  # 使用表单输入的规格名称
+                spec_name=spec_name,
                 price=price,
                 stock=stock
             )
@@ -687,13 +630,12 @@ def publish_product():
         except Exception as e:
             db.session.rollback()
             print(f"发布错误: {e}")
-            flash(f'❌ 发布失败: {e}', 'error')  # 加上 error 标签，方便前端识别
-            return redirect(url_for('publish_product'))  # 失败后返回发布页，防止数据丢失
+            flash(f'❌ 发布失败: {e}', 'error')
+            return redirect(url_for('publish_product'))
 
     return render_template('publish.html')
 
 
-# 🔥 [新增] 农户切换商品上下架状态
 @app.route('/farmer/product/<int:product_id>/toggle_sale')
 def toggle_product_status(product_id):
     """切换商品的上架/下架状态"""
@@ -702,7 +644,6 @@ def toggle_product_status(product_id):
     current_user = User.query.get(session['user_id'])
     product = Product.query.get_or_404(product_id)
 
-    # 权限检查：必须是农户 (role=1) 且是商品的发布者
     if current_user.role != 1 or product.farmer_id != current_user.user_id:
         flash('🚫 权限不足，无法操作该商品。')
         return redirect(url_for('profile'))
@@ -713,7 +654,6 @@ def toggle_product_status(product_id):
     status_msg = "上架" if product.is_on_sale else "下架"
     flash(f'✅ 商品 **{product.name}** 已成功切换为 **{status_msg}** 状态！')
 
-    # 成功后重定向回农户商品管理列表
     return redirect(url_for('profile'))
 
 
@@ -724,10 +664,8 @@ def edit_product(product_id):
     user = User.query.get(session['user_id'])
 
     product = Product.query.get_or_404(product_id)
-    # 我们只修改第一个 SKU，因为它在模板中是唯一可编辑的
     main_sku = ProductSKU.query.filter_by(product_id=product_id).first()
 
-    # 权限检查：必须是农户且是该商品的发布者
     if not user or user.role != 1 or product.farmer_id != user.user_id:
         flash('🚫 权限不足，无法编辑该商品。')
         return redirect(url_for('profile'))
@@ -759,7 +697,6 @@ def edit_product(product_id):
                     filename = secure_filename(file.filename)
                     file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
                     image_url = url_for('static', filename='uploads/' + filename)
-                    is_file_uploaded = True
 
             manual_url_input = request.form.get('image_url')
 
@@ -780,10 +717,9 @@ def edit_product(product_id):
             # 4. 更新主要 SKU 规格
             if main_sku:
                 main_sku.spec_name = spec_name_input
-                main_sku.price = price_val  # 使用已校验的值
-                main_sku.stock = stock_val  # 使用已校验的值
+                main_sku.price = price_val
+                main_sku.stock = stock_val
             else:
-                # 这种情况应该在创建商品时被避免
                 raise Exception("商品规格（SKU）数据丢失，无法更新。")
 
             db.session.commit()
@@ -791,14 +727,11 @@ def edit_product(product_id):
             return redirect(url_for('profile'))
 
         except ValueError as ve:
-            # 捕获我们新增的校验错误
             db.session.rollback()
             flash(f'❌ 数据校验失败: {ve}', 'error')
-            # 保持在当前页面，允许用户修改
             return redirect(url_for('edit_product', product_id=product_id))
 
         except Exception as e:
-            # 捕获其他数据库或系统错误
             db.session.rollback()
             print(f"编辑错误: {e}")
             flash(f'❌ 编辑失败，系统错误: {e}', 'error')
@@ -816,16 +749,15 @@ def delete_product(product_id):
     # 查找商品，确保存在
     product = Product.query.get_or_404(product_id)
 
-    # 权限检查：必须是农户且是该商品的发布者
     if not current_user or current_user.role != 1 or product.farmer_id != current_user.user_id:
         flash('🚫 权限不足，无法删除该商品。')
         return redirect(url_for('profile'))
 
     try:
-        # ⚠️ 必须先删除所有关联的外键数据，才能删除主商品
+        # 必须先删除所有关联的外键数据，才能删除主商品
         # 1. 删除所有 SKU
         ProductSKU.query.filter_by(product_id=product_id).delete()
-        # 2. 删除所有购物车项 (CartItem 现关联 SKU，但为保险仍可检查)
+        # 2. 删除所有购物车项
         # 3. 删除所有关联社区帖子
         CommunityPost.query.filter_by(related_product_id=product_id).delete()
         # 4. 删除所有行为日志 (CF数据源)
@@ -859,7 +791,6 @@ def orders():
 
     user_orders = Order.query.filter_by(user_id=session['user_id']).order_by(Order.order_date.desc()).all()
 
-    # 🔥 [修改/新增] 订单状态映射，新增 6-售后中, 7-已退款/售后完成
     status_map = {
         1: '待支付',
         2: '待发货',
@@ -884,29 +815,23 @@ def order_detail(order_id):
     # 1. 查找特定订单
     order = Order.query.get_or_404(order_id)
 
-    # 2. 🔥 [修改] 权限检查逻辑：允许消费者、负责农户和管理员访问
+    # 2. 权限检查逻辑：允许消费者、负责农户和管理员访问
     has_access = False
 
-    # a. 消费者: 订单属于当前用户
     if order.user_id == current_user.user_id:
         has_access = True
 
-    # b. 农户: 订单包含该农户的商品 (OrderItems)
-    elif current_user.role == 1:
-        is_farmer_item = OrderItem.query.filter_by(
-            order_id=order_id,
-            farmer_id=current_user.user_id
-        ).first()
-        if is_farmer_item:
+    elif current_user.role in [1, 2]:
+        if current_user.role == 2:
             has_access = True
 
-    # c. 管理员: 可以查看所有
-    elif current_user.role == 2:
-        has_access = True
+        else:
+            is_responsible = OrderItem.query.filter_by(order_id=order_id, farmer_id=current_user.user_id).first()
+            if is_responsible:
+                has_access = True
 
     if not has_access:
         flash('🚫 权限不足，无法查看该订单详情。', 'error')
-        # 重定向到合适的页面
         if current_user.role == 1:
             return redirect(url_for('farmer_orders'))
         return redirect(url_for('profile'))
@@ -917,13 +842,11 @@ def order_detail(order_id):
         6: '售后中', 7: '已退款/售后完成'
     }
 
-    # 临时将 status_map 绑定到 order 对象，方便 edit_order_address 模板调用
     order.status_map = status_map
 
     return render_template('order_detail.html', order=order, status_map=status_map)
 
 
-# 🔥 [新增] 路由：确认收货
 @app.route('/order/<int:order_id>/confirm_receipt', methods=['POST'])
 def confirm_receipt(order_id):
     """消费者：将订单状态从“待收货”(3)改为“已完成”(4)"""
@@ -937,7 +860,7 @@ def confirm_receipt(order_id):
         return redirect(url_for('order_detail', order_id=order_id))
 
     try:
-        order.status = 4  # 4: 已完成
+        order.status = 4
         db.session.commit()
         flash(f'🎉 订单 #{order_id} 确认收货成功，交易完成！', 'success')
     except Exception as e:
@@ -947,12 +870,11 @@ def confirm_receipt(order_id):
     return redirect(url_for('order_detail', order_id=order_id))
 
 
-# 🔥 [新增] 路由：修改订单地址
 @app.route('/order/<int:order_id>/edit_address', methods=['GET', 'POST'])
 def edit_order_address(order_id):
     """
     修改订单地址，仅限发货前（状态 1 或 2）
-    🔥 [修改] 权限逻辑：允许消费者和负责农户/管理员访问。
+    权限逻辑：允许消费者和负责农户/管理员访问。
     """
     if 'user_id' not in session: return redirect(url_for('login'))
     current_user = User.query.get(session['user_id'])
@@ -966,19 +888,17 @@ def edit_order_address(order_id):
         6: '售后中', 7: '已退款/售后完成'
     }
 
-    # 2. 🔥 [新增] 权限检查逻辑：允许消费者、负责农户、或管理员
+    # 2. 权限检查逻辑：允许消费者、负责农户、或管理员
     has_access = False
 
-    # a. 消费者
     if order.user_id == current_user.user_id:
         has_access = True
 
-    # b. 农户/管理员
     elif current_user.role in [1, 2]:
         if current_user.role == 2:
-            has_access = True  # 管理员通过
+            has_access = True
+
         else:
-            # 农户: 检查是否负责该订单
             is_responsible = OrderItem.query.filter_by(order_id=order_id, farmer_id=current_user.user_id).first()
             if is_responsible:
                 has_access = True
@@ -1001,7 +921,6 @@ def edit_order_address(order_id):
 
         if not all([new_address, new_receiver_name, new_receiver_phone]):
             flash('收货信息不能为空。', 'error')
-            # 失败路径也需要传递 status_map
             order.status_map = status_map
             return render_template('edit_order_address.html', order=order, status_map=status_map)
 
@@ -1017,13 +936,10 @@ def edit_order_address(order_id):
 
         return redirect(url_for('order_detail', order_id=order_id))
 
-    # 4. GET 路径渲染
-    # 必须将 status_map 临时附加到 order 对象上，以满足模板中 order.status_map 的调用
     order.status_map = status_map
     return render_template('edit_order_address.html', order=order, status_map=status_map)
 
 
-# 🔥 [新增] 路由：申请售后
 @app.route('/order/<int:order_id>/after_sales', methods=['POST'])
 def apply_for_after_sales(order_id):
     """消费者：将订单状态从“已完成”(4)改为“售后中”(6)"""
@@ -1031,20 +947,18 @@ def apply_for_after_sales(order_id):
     user_id = session['user_id']
 
     order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
-    reason = request.form.get('after_sales_reason')
 
-    # 权限检查：订单必须是 4 (已完成) 才能申请售后
     if order.status != 4:
         flash('⚠️ 订单未完成，无法申请售后。')
         return redirect(url_for('order_detail', order_id=order_id))
 
-    if not reason:
+    if not request.form.get('after_sales_reason'):
         flash('⚠️ 请填写售后原因。', 'error')
         return redirect(url_for('order_detail', order_id=order_id))
 
     try:
-        order.status = 6  # 6: 售后中
-        order.after_sales_reason = reason  # 记录售后原因
+        order.status = 6
+        order.after_sales_reason = request.form.get('after_sales_reason')
         db.session.commit()
         flash(f'📢 订单 #{order_id} 已成功提交售后申请，请等待商家处理。', 'warning')
     except Exception as e:
@@ -1053,8 +967,6 @@ def apply_for_after_sales(order_id):
 
     return redirect(url_for('order_detail', order_id=order_id))
 
-
-# ----------------- 农户订单管理 (Farmer Order Management) -----------------
 
 @app.route('/farmer/orders', defaults={'status_filter': 'pending'})
 @app.route('/farmer/orders/<status_filter>')
@@ -1071,7 +983,6 @@ def farmer_orders(status_filter):
         flash('🚫 权限不足')
         return redirect(url_for('index'))
 
-    # 订单状态映射
     status_map = {
         1: '待支付', 2: '待发货', 3: '待收货', 4: '已完成', 5: '已取消',
         6: '售后中', 7: '已退款/售后完成'
@@ -1079,19 +990,18 @@ def farmer_orders(status_filter):
 
     # 1. 确定需要查询的订单状态
     if status_filter == 'pending':
-        target_statuses = [2]  # 待发货
+        target_statuses = [2]
         title = "待发货订单"
     elif status_filter == 'shipped':
-        target_statuses = [3]  # 已发货 (待收货)
+        target_statuses = [3]
         title = "已发货订单"
     elif status_filter == 'completed':
-        target_statuses = [4, 7]  # 已完成, 售后完成
+        target_statuses = [4, 7]
         title = "已完成/售后结束订单"
     elif status_filter == 'aftersales':
-        target_statuses = [6]  # 售后中
+        target_statuses = [6]
         title = "售后中订单"
     else:
-        # 默认回退到待发货
         target_statuses = [2]
         title = "待发货订单"
         status_filter = 'pending'
@@ -1136,11 +1046,9 @@ def ship_order(order_id):
         flash('🚫 权限不足')
         return redirect(url_for('index'))
 
-    tracking_number = request.form.get('tracking_number')
-
-    if not tracking_number:
+    if not request.form.get('tracking_number'):
         flash('⚠️ 必须填写发货单号。', 'error')
-        return redirect(url_for('farmer_orders'))  # Redirect to the default view
+        return redirect(url_for('farmer_orders'))
 
     order = Order.query.get_or_404(order_id)
 
@@ -1156,18 +1064,17 @@ def ship_order(order_id):
 
     try:
         order.status = 3
-        order.tracking_number = tracking_number
+        order.tracking_number = request.form.get('tracking_number')
         db.session.commit()
-        flash(f'✅ 订单 #{order_id} 已成功发货 (单号: {tracking_number})！状态更新为“待收货”。', 'success')
+        flash(f'✅ 订单 #{order_id} 已成功发货 (单号: {request.form.get("tracking_number")})！状态更新为“待收货”。', 'success')
 
     except Exception as e:
         db.session.rollback()
         flash(f'❌ 订单发货失败: {e}', 'error')
 
-    return redirect(url_for('farmer_orders', status_filter='shipped'))  # Redirect to shipped view
+    return redirect(url_for('farmer_orders', status_filter='shipped'))
 
 
-# 🔥 [新增] 路由：处理售后申请 (同意退款/售后完成)
 @app.route('/farmer/order/<int:order_id>/handle_after_sales', methods=['POST'])
 def handle_after_sales(order_id):
     """农户：处理售后申请，将订单状态从“售后中”(6)改为“已退款/售后完成”(7)"""
@@ -1180,7 +1087,7 @@ def handle_after_sales(order_id):
 
     order = Order.query.get_or_404(order_id)
 
-    if order.status != 6:  # 必须是售后中才能处理
+    if order.status != 6:
         flash(f'⚠️ 订单 #{order_id} 状态不是售后中，无法处理。')
         return redirect(url_for('farmer_orders', status_filter='aftersales'))
 
@@ -1188,11 +1095,10 @@ def handle_after_sales(order_id):
 
     if not is_responsible:
         flash(f'🚫 订单 #{order_id} 不包含您的商品，无权操作。')
-        return redirect(url_for('farmer_orders', status_filter='aftersales'))
+        return redirect(url_for('farmer_orders'))
 
     try:
-        order.status = 7  # 7: 已退款/售后完成
-        # 注意：实际业务中这里可能需要处理退款金额逻辑
+        order.status = 7
         db.session.commit()
         flash(f'✅ 订单 #{order_id} 售后处理完成，状态更新为“已退款/售后完成”。', 'success')
     except Exception as e:
@@ -1201,8 +1107,6 @@ def handle_after_sales(order_id):
 
     return redirect(url_for('farmer_orders', status_filter='completed'))
 
-
-# ----------------- 社区、管理员、登录等路由 (Other Routes) -----------------
 
 @app.route('/profile/favorites')
 def view_favorites():
@@ -1224,7 +1128,7 @@ def view_favorites():
     favorites = []
     if product_ids:
         # 3. 根据ID查询商品详情
-        # 🔥 [修改] 增加 is_on_sale 过滤
+        # 增加 is_on_sale 过滤
         products = Product.query.filter(
             Product.product_id.in_(product_ids),
             Product.is_on_sale == True
@@ -1243,7 +1147,6 @@ def view_favorites():
 def new_post():
     """发布新帖子 (支持关联商品)"""
     if 'user_id' not in session:
-        flash('请先登录后再发帖。')
         return redirect(url_for('login'))
 
     user = User.query.get(session['user_id'])
@@ -1263,7 +1166,7 @@ def new_post():
                     user_id=session['user_id'],
                     title=title,
                     content=content,
-                    related_product_id=related_product_id  # 🔥 保存关联商品
+                    related_product_id=related_product_id
                 )
                 db.session.add(new_post)
                 db.session.commit()
@@ -1275,8 +1178,8 @@ def new_post():
 
     # GET 请求：如果是农户，获取他的商品列表
     my_products = []
-    if user.role == 1:  # 1 = 农户
-        # 🔥 [修改] 仅获取已上架的商品供关联
+    if user.role == 1:
+        # 仅获取已上架的商品供关联
         my_products = Product.query.filter_by(farmer_id=user.user_id, is_on_sale=True).all()
 
     return render_template('publish_post.html', my_products=my_products)
@@ -1308,7 +1211,6 @@ def approve_farmer(user_id):
     return redirect(url_for('admin_dashboard'))
 
 
-# 🔥 [新增] 管理员手动触发推荐模型训练的路由
 @app.route('/admin/train_model')
 def train_model():
     """手动触发推荐算法的离线计算 (计算物品相似度)"""
@@ -1318,7 +1220,6 @@ def train_model():
         return "无权操作", 403
 
     try:
-        # 调用核心算法进行离线计算，并更新数据库中的 ItemSimilarity 表
         recommender.calculate_and_save_similarity()
         flash('✅ 推荐模型训练完成！物品相似度矩阵已更新。')
     except Exception as e:
@@ -1328,10 +1229,6 @@ def train_model():
     return redirect(url_for('admin_dashboard'))
 
 
-# ==========================================
-# 🔒 API: 行为采集 (含收藏状态切换)
-# ==========================================
-
 @app.route('/api/collect_behavior', methods=['POST'])
 def collect_behavior():
     if 'user_id' not in session:
@@ -1339,13 +1236,12 @@ def collect_behavior():
 
     data = request.get_json()
     product_id = data.get('product_id')
-    behavior_type = int(data.get('behavior_type'))  # 2:收藏, 3:加购, 4:购买
+    behavior_type = int(data.get('behavior_type'))
 
     if not product_id:
         return jsonify({'status': 'error', 'message': '参数错误'}), 400
 
     try:
-        # 🔥 如果是收藏操作 (type=2)，检查是否需要切换状态
         if behavior_type == 2:
             # 1. 查找所有该用户对该商品的收藏记录 (可能有多条)
             existing_logs = BehaviorLog.query.filter_by(
@@ -1355,13 +1251,11 @@ def collect_behavior():
             ).all()
 
             if existing_logs:
-                # 🔥 存在记录 -> 全部删除 (彻底取消收藏)
                 for log in existing_logs:
                     db.session.delete(log)
                 action = 'removed'
                 msg = '已取消收藏'
             else:
-                # 不存在 -> 添加一条新记录
                 new_log = BehaviorLog(
                     user_id=session['user_id'],
                     product_id=product_id,
@@ -1371,7 +1265,6 @@ def collect_behavior():
                 action = 'added'
                 msg = '收藏成功'
         else:
-            # 其他行为 (如加购、购买)，直接添加记录，不去重
             new_log = BehaviorLog(
                 user_id=session['user_id'],
                 product_id=product_id,
@@ -1395,13 +1288,11 @@ def farmer_dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = User.query.get(session['user_id'])
 
-    # 权限控制：只有认证农户能看
     if not user or user.role != 1:
         flash('🚫 您不是农户，无法查看数据看板。')
         return redirect(url_for('profile'))
 
     # --- 1. 核心指标统计 ---
-    # 统计该农户所有商品的销售总额和总销量
     # Note: OrderItem 仍包含 price 和 quantity，计算逻辑不变
     sales_stats = db.session.query(
         func.sum(OrderItem.quantity).label('total_sales'),
@@ -1430,7 +1321,7 @@ def farmer_dashboard():
         .join(Product, BehaviorLog.product_id == Product.product_id) \
         .filter(
         Product.farmer_id == user.user_id,
-        BehaviorLog.behavior_type.in_([2, 3])  # 2=收藏, 3=加购
+        BehaviorLog.behavior_type.in_([2, 3])
     ).scalar()
 
     # --- 3. 热销商品 Top 5 ---
@@ -1494,5 +1385,208 @@ def logout():
     return redirect(url_for('index'))
 
 
+# ==========================================
+# ----------------- 聊天功能 (Chat Feature) -----------------
+# ==========================================
+
+@app.route('/chat')
+def chat_list():
+    """聊天列表页面：显示所有与当前用户相关的会话"""
+    if 'user_id' not in session:
+        flash('请先登录以查看消息。')
+        return redirect(url_for('login'))
+
+    user_id = session['user_id']
+
+    # 查找所有包含当前用户的会话，并按最后消息时间排序
+    conversations = Conversation.query.filter(
+        Conversation.participants.like(f"%{user_id}%")
+    ).order_by(Conversation.last_message_date.desc()).all()
+
+    chat_previews = []
+    for conv in conversations:
+        # 1. 识别对话的另一方
+        participants_ids = [int(p) for p in conv.participants.split(',') if int(p) != user_id]
+        if not participants_ids: continue
+
+        other_user = User.query.get(participants_ids[0])
+
+        # 2. 获取最后一条消息
+        last_message = conv.messages.order_by(Message.timestamp.desc()).first()
+
+        # 3. 计算未读消息数
+        unread_count = conv.messages.filter(
+            Message.status == 0,
+            Message.sender_id != user_id
+        ).count()
+
+        chat_previews.append({
+            'conv_id': conv.id,
+            'other_user': other_user,
+            'last_message': last_message.content if last_message else "暂无消息",
+            'last_message_time': last_message.timestamp if last_message else conv.last_message_date,
+            'unread_count': unread_count
+        })
+
+    return render_template('chat_list.html', previews=chat_previews)
+
+
+@app.route('/chat/<int:conv_id>')
+def chat_detail(conv_id):
+    """具体聊天窗口页面：显示历史消息"""
+    if 'user_id' not in session:
+        flash('请先登录。')
+        return redirect(url_for('login'))
+
+    user_id = session['user_id']
+    current_user = User.query.get(user_id)
+    conversation = Conversation.query.get_or_404(conv_id)
+
+    # 权限检查：确保当前用户是会话参与者
+    if str(user_id) not in conversation.participants.split(','):
+        flash('🚫 权限不足，无法查看此会话。', 'error')
+        return redirect(url_for('chat_list'))
+
+    # 标记接收到的消息为已读
+    Message.query.filter(
+        Message.conversation_id == conv_id,
+        Message.status == 0,
+        Message.sender_id != user_id
+    ).update({Message.status: 1})
+    db.session.commit()
+
+    # 获取所有消息
+    messages = conversation.messages.order_by(Message.timestamp.asc()).all()
+
+    # 找出对话的另一方 (即商家 ID)
+    participants_ids = [int(p) for p in conversation.participants.split(',') if int(p) != user_id]
+    other_user = User.query.get(participants_ids[0])
+
+    # === 历史订单查询逻辑 (新增) ===
+    # 1. 确定商家 ID
+    merchant_id = other_user.user_id
+
+    # 2. 查询该客户在该商家处购买的所有历史订单
+    historical_orders = db.session.query(Order).join(OrderItem, Order.order_id == OrderItem.order_id).filter(
+        Order.user_id == user_id,
+        OrderItem.farmer_id == merchant_id
+    ).distinct().order_by(Order.order_date.desc()).all()
+
+    return render_template('chat_detail.html',
+                           conversation=conversation,
+                           messages=messages,
+                           other_user=other_user,
+                           current_user=current_user,
+                           historical_orders=historical_orders)  # <-- 传递历史订单
+
+
+@app.route('/start_chat/<int:target_user_id>', methods=['POST'])
+def start_chat(target_user_id):
+    """从其他页面（如商品详情）跳转到聊天，并创建会话"""
+    if 'user_id' not in session:
+        flash('请先登录才能发起聊天。')
+        return redirect(url_for('login'))
+
+    current_user_id = session['user_id']
+
+    if current_user_id == target_user_id:
+        flash('不能与自己发起会话。', 'warning')
+        return redirect(url_for('profile'))
+
+    # 查找目标用户是否存在
+    if not User.query.get(target_user_id):
+        flash('目标用户不存在。', 'error')
+        return redirect(url_for('index'))
+
+    # 规范化参与者字符串：保证 ID 小的在前
+    id1, id2 = sorted([current_user_id, target_user_id])
+    participants_str = f"{id1},{id2}"
+
+    conversation = Conversation.query.filter_by(participants=participants_str).first()
+
+    if not conversation:
+        # 创建新会话
+        try:
+            conversation = Conversation(participants=participants_str)
+            db.session.add(conversation)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            flash(f'创建会话失败: {e}', 'error')
+            return redirect(url_for('index'))
+
+    return redirect(url_for('chat_detail', conv_id=conversation.id))
+
+
+# ==========================================
+# ⚡️ SocketIO 事件处理 (实时通信)
+# ==========================================
+
+@socketio.on('join')
+def on_join(data):
+    """用户连接时，加入对应的会话房间（Room）"""
+    conv_id = data.get('conv_id')
+    user_id = session.get('user_id')
+
+    if conv_id and user_id:
+        # 房间名称使用 conv_id
+        room = str(conv_id)
+        join_room(room)
+        print(f"User {user_id} joined room {room}")
+        # 可选：向自己发送连接成功的状态
+        emit('status', {'msg': f'已连接到会话 {conv_id}'}, room=request.sid)
+
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    """处理新消息的存储和广播"""
+    conv_id_raw = data.get('conv_id')
+    content = data.get('content')
+    sender_id = session.get('user_id')
+
+    if not all([conv_id_raw, content, sender_id]):
+        return
+
+    conv_id = int(conv_id_raw)
+
+    with app.app_context():
+        try:
+            # 1. 消息存储到数据库 (默认 status=0 未读)
+            new_message = Message(
+                conversation_id=conv_id,
+                sender_id=sender_id,
+                content=content
+            )
+            db.session.add(new_message)
+
+            # 2. 更新会话的最后消息时间
+            conversation = Conversation.query.get(conv_id)
+            if conversation:
+                conversation.last_message_date = datetime.now()
+
+            db.session.commit()
+
+            # 3. 获取发送者名称用于广播
+            sender = User.query.get(sender_id)
+
+            # 4. 广播消息到房间内所有连接的用户
+            room = str(conv_id)
+            emit('new_message', {
+                'sender_id': sender_id,
+                'username': sender.username,
+                'content': content,
+                'timestamp': new_message.timestamp.strftime('%H:%M'),
+                'conv_id': conv_id
+            }, room=room)
+
+        except Exception as e:
+            print(f"\n=============================================")
+            print(f"❌ 聊天消息处理失败！请检查数据库日志:")
+            print(f"  错误类型: {type(e).__name__}")
+            print(f"  错误信息: {e}")
+            print(f"=============================================\n")
+            db.session.rollback()
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    socketio.run(app, debug=True, port=5000)

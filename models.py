@@ -207,3 +207,41 @@ class OrderItem(db.Model):
 
     # product = db.relationship('Product') # 移除
     sku = db.relationship('ProductSKU')  # 新增 SKU 关联
+
+
+# ==========================================
+# 5. 聊天与消息体系 (Chat & Message)
+# ==========================================
+
+class Conversation(db.Model):
+    """会话表：存储用户之间的聊天会话"""
+    __tablename__ = 'T_Conversation'
+    id = db.Column(db.Integer, primary_key=True)
+    # 存储参与者的ID，例如 '1,10' (保证ID小的在前，用于唯一性索引)
+    participants = db.Column(db.String(255), nullable=False, index=True)
+    last_message_date = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+    messages = db.relationship('Message', backref='conversation', lazy='dynamic')
+
+    # 确保用户对之间只有一个会话，并允许模型重复加载
+    __table_args__ = (
+        db.UniqueConstraint('participants', name='_unique_participants_uc'),
+        {'extend_existing': True}
+    )
+
+
+class Message(db.Model):
+    """消息表：存储每条消息记录"""
+    __tablename__ = 'T_Message'
+    id = db.Column(db.BigInteger, primary_key=True)
+    conversation_id = db.Column(db.Integer, db.ForeignKey('T_Conversation.id'), nullable=False)
+    sender_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.now, index=True)
+    # 消息状态：0-未读, 1-已读
+    status = db.Column(db.Integer, default=0)
+
+    sender = db.relationship('User', foreign_keys=[sender_id], backref='sent_messages')
+
+    # 允许模型重复加载
+    __table_args__ = {'extend_existing': True}
