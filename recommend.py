@@ -3,9 +3,9 @@ import numpy as np
 import jieba
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func  # <-- Import func for aggregation
 from datetime import datetime, date
-from models import db, BehaviorLog, ItemSimilarity, Product
+from models import db, BehaviorLog, ItemSimilarity, Product, ProductReview  # <-- Import ProductReview
 
 # ==========================================
 # ⚙️ 算法超参数配置 (论文中可作为调优参数)
@@ -23,8 +23,12 @@ ALPHA = 0.7  # 协同过滤(行为)的权重
 BETA = 0.3  # 内容推荐(文本)的权重
 
 # 3. 时间衰减半衰期 (单位: 天)
-# 意味着每过 30 天，用户行为的参考价值减半
 HALF_LIFE_DAYS = 30.0
+
+# 🔥 4. 评论质量因子参数 (新增)
+# Bayesian Average所需参数
+BAYESIAN_CONFIDENCE_C = 10.0  # 假设需要 10 条评论才能达到平均可靠性
+GLOBAL_MEAN_RATING_M = 3.0  # 假设全局平均分是 3.0
 
 
 class RecommenderEngine:
@@ -36,7 +40,43 @@ class RecommenderEngine:
 
     def load_engine(self):
         with self.app.app_context():
+            # 确保在 app context 中创建引擎
             self.engine = create_engine(self.app.config['SQLALCHEMY_DATABASE_URI'])
+
+    # -------------------------------------------------------------------------
+    # 🔥 新增模块: 产品质量因子计算 (Product Review Rating)
+    # -------------------------------------------------------------------------
+    def _get_product_quality_factors(self):
+        """计算每个商品的平滑调整后平均评分 (Bayesian Average) 作为质量因子"""
+        print("   [4/4] 正在计算产品质量因子 (Review Rating)...")
+        with self.app.app_context():
+            # 1. 聚合评论数据: 总分, 评论数
+            review_stats = db.session.query(
+                ProductReview.product_id,
+                func.sum(ProductReview.rating).label('total_rating'),
+                func.count(ProductReview.review_id).label('review_count')
+            ).group_by(ProductReview.product_id).all()
+
+            # 2. 计算全局平均分 (使用预设值 M=3.0)
+
+            quality_factors = {}
+            for product_id, total_rating, review_count in review_stats:
+                N = float(review_count)
+                R = float(total_rating)
+
+                # Adjusted Rating = (C * m + R) / (C + N)
+                # C=10.0, m=3.0
+                adjusted_rating = (BAYESIAN_CONFIDENCE_C * GLOBAL_MEAN_RATING_M + R) / (BAYESIAN_CONFIDENCE_C + N)
+
+                # Quality Factor: Adjusted Rating / Global Mean. 中心值是 1.0。
+                # 例如：如果调整后评分是 4.0，因子是 4.0/3.0 ≈ 1.33 (加权推荐)
+                # 如果调整后评分是 2.0，因子是 2.0/3.0 ≈ 0.67 (降权推荐)
+                quality_factor = adjusted_rating / GLOBAL_MEAN_RATING_M
+
+                quality_factors[product_id] = quality_factor
+
+        print(f"   ✅ 完成质量因子计算，共 {len(quality_factors)} 个商品。")
+        return quality_factors
 
     # -------------------------------------------------------------------------
     # 核心模块 A: 基于协同过滤的相似度 (Item-Based CF)
@@ -190,10 +230,13 @@ class RecommenderEngine:
                 print(f"❌ 存储失败: {e}")
 
     # -------------------------------------------------------------------------
-    # 在线推荐模块 (含时间衰减)
+    # 在线推荐模块 (含时间衰减 & 评论调整)
     # -------------------------------------------------------------------------
     def get_recommendations(self, user_id, num_recommendations=10):
-        """获取推荐列表，引入时间衰减"""
+        """获取推荐列表，引入时间衰减 和 评论调整"""
+        # 🔥 1. 获取产品质量因子
+        quality_factors = self._get_product_quality_factors()
+
         with self.app.app_context():
             # 获取用户历史行为 (带时间戳)
             user_logs = db.session.query(
@@ -208,31 +251,26 @@ class RecommenderEngine:
         user_preference_scores = {}
         now = datetime.now()
 
-        # 1. 计算用户当前偏好 (User Profile)
+        # 2. 计算用户当前偏好 (User Profile)
         for pid, btype, timestamp in user_logs:
             # 基础分
             base_score = BEHAVIOR_WEIGHTS.get(btype, 1.0)
 
-            # 🔥 时间衰减计算 (Newton's Law of Cooling style)
-            # 距离现在过去了多少天
+            # 🔥 时间衰减计算
             delta_days = (now - timestamp).days
             if delta_days < 0: delta_days = 0
-
-            # 衰减系数: 1 / (1 + days)
-            # 或者是指数衰减: math.exp(-lambda * t)
-            # 这里用简单的半衰期公式
             time_weight = np.power(0.5, delta_days / HALF_LIFE_DAYS)
 
             final_score = base_score * time_weight
 
             user_preference_scores[pid] = user_preference_scores.get(pid, 0) + final_score
 
-        # 2. 扩散推荐
+        # 3. 扩散推荐
         recommended_scores = {}
         seed_ids = list(user_preference_scores.keys())
 
         with self.app.app_context():
-            # 查相似度表 (这里查出来的是已经是混合过 Content+CF 的结果)
+            # 查相似度表 (已经是混合过 Content+CF 的结果)
             similar_items = ItemSimilarity.query.filter(
                 (ItemSimilarity.item_a_id.in_(seed_ids)) | (ItemSimilarity.item_b_id.in_(seed_ids))
             ).all()
@@ -246,14 +284,19 @@ class RecommenderEngine:
                     seed_id = sim.item_b_id
                     target_id = sim.item_a_id
 
-                # 过滤已购买/已交互
+                # 过滤已交互
                 if target_id in user_preference_scores:
                     continue
 
                 # 预测分 = 用户对种子的兴趣(含时间衰减) * 物品相似度(含内容混合)
                 score = user_preference_scores[seed_id] * sim.similarity_score
-                recommended_scores[target_id] = recommended_scores.get(target_id, 0) + score
 
-        # 3. 排序返回
+                # 🔥 新增：将预测分与产品质量因子相乘
+                quality_factor = quality_factors.get(target_id, 1.0)  # 默认因子为 1.0
+                adjusted_score = score * quality_factor
+
+                recommended_scores[target_id] = recommended_scores.get(target_id, 0) + adjusted_score
+
+        # 4. 排序返回
         sorted_recs = sorted(recommended_scores.items(), key=lambda x: x[1], reverse=True)
         return [item[0] for item in sorted_recs][:num_recommendations]

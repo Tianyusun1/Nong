@@ -8,7 +8,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import joinedload  # <-- 引入 joinedload 用于优化查询
 from models import db, User, CommunityPost, FarmerInfo, Product, \
     BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem, ProductSKU, ShippingTemplate, \
-    Conversation, Message
+    Conversation, Message, ProductReview  # <-- 🔥 新增 ProductReview
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import IntegrityError
@@ -119,6 +119,55 @@ def calculate_shipping_cost(cart_items, address):
 
     # Fallback for unexpected input
     return Decimal('10.00')
+
+
+# 🔥 新增：可复用的推荐商品获取与格式化函数
+def get_formatted_recommendations(user_id, num_recommendations=4):
+    """获取并格式化推荐商品列表（包括 min_price 和 SKU信息）"""
+    if not user_id:
+        return []
+
+    products = []
+    # 尝试从推荐引擎获取推荐
+    try:
+        with app.app_context():
+            # 1. 获取推荐 ID 列表
+            recommended_ids = recommender.get_recommendations(user_id, num_recommendations=num_recommendations)
+
+        base_query = Product.query.filter(
+            Product.is_on_sale == True
+        ).options(joinedload(Product.skus))
+
+        if recommended_ids:
+            # 2. 按照推荐顺序加载商品，并确保它们仍然在售
+            rec_products_unsorted = base_query.filter(
+                Product.product_id.in_(recommended_ids)
+            ).all()
+
+            product_map = {p.product_id: p for p in rec_products_unsorted}
+            products = [product_map[pid] for pid in recommended_ids if pid in product_map]
+
+        if not products:
+            # 3. 如果没有推荐结果，返回热门商品作为兜底 (简化逻辑: 按ID降序取前N个)
+            products = base_query.order_by(Product.product_id.desc()).limit(num_recommendations).all()
+
+    except Exception as e:
+        # 兜底：如果推荐引擎出错，返回热门商品
+        print(f"⚠️ 推荐算法调用失败，已回退到热门列表: {e}")
+        products = Product.query.filter(
+            Product.is_on_sale == True
+        ).options(joinedload(Product.skus)).order_by(Product.product_id.desc()).limit(num_recommendations).all()
+
+    # 4. 格式化输出 (适配模板需要的 product, min_price 结构)
+    final_products_data = []
+    for product in products:
+        min_price = min(sku.price for sku in product.skus) if product.skus else Decimal('0.00')
+        final_products_data.append({
+            'product': product,
+            'min_price': min_price
+        })
+
+    return final_products_data
 
 
 # ==========================================
@@ -247,6 +296,21 @@ def product_detail(product_id):
 
     product_skus = ProductSKU.query.filter_by(product_id=product_id).order_by(ProductSKU.price.asc()).all()
 
+    # --- 🔥 新增：商品评价统计与列表 ---
+    # 获取所有评价，并预加载用户
+    all_reviews = ProductReview.query.filter_by(product_id=product_id).options(joinedload(ProductReview.user)).order_by(
+        ProductReview.review_date.desc()).all()
+
+    total_reviews_count = len(all_reviews)
+    average_rating = Decimal('0.0')
+
+    if total_reviews_count > 0:
+        # 使用 func.sum 计算总分
+        total_rating = db.session.query(func.sum(ProductReview.rating)).filter_by(product_id=product_id).scalar()
+        # 计算平均分，保留一位小数
+        average_rating = round(Decimal(str(total_rating)) / Decimal(str(total_reviews_count)), 1)
+    # --- 结束：商品评价统计与列表 ---
+
     # 转换为模板所需的结构
     recommendations_for_template = []
     for rec_product in recommendations:
@@ -267,7 +331,10 @@ def product_detail(product_id):
                            product=product,
                            recommendations=recommendations_for_template,  # <-- 使用转换后的列表
                            has_favorited=has_favorited,
-                           product_skus=product_skus)
+                           product_skus=product_skus,
+                           reviews=all_reviews,  # <-- 新增
+                           average_rating=average_rating,  # <-- 新增
+                           total_reviews_count=total_reviews_count)  # <-- 新增
 
 
 # ==========================================
@@ -391,14 +458,20 @@ def view_cart():
         flash('请先登录以查看购物车。')
         return redirect(url_for('login'))
 
+    user_id = session['user_id']  # <-- 获取 user_id
+
     # 优化：预加载 sku 及其 product 和 farmer
-    cart_items = CartItem.query.filter_by(user_id=session['user_id']).options(
+    cart_items = CartItem.query.filter_by(user_id=user_id).options(
         joinedload(CartItem.sku).joinedload(ProductSKU.product).joinedload(Product.farmer)
     ).all()
 
     total_price = sum(item.sku.price * item.quantity for item in cart_items)
 
-    return render_template('cart.html', cart_items=cart_items, total_price=total_price)
+    # 🔥 新增: 获取推荐商品
+    recommendations = get_formatted_recommendations(user_id)
+
+    return render_template('cart.html', cart_items=cart_items, total_price=total_price,
+                           recommendations=recommendations)  # <-- 传递 recommendations
 
 
 @app.route('/cart/add/<int:sku_id>', methods=['POST'])
@@ -676,6 +749,7 @@ def place_order():
 def profile():
     if 'user_id' not in session: return redirect(url_for('login'))
     user = User.query.get(session['user_id'])
+    user_id = session['user_id']  # <-- 获取 user_id
 
     pending_orders_count = 0
     total_revenue = Decimal('0.00')
@@ -704,9 +778,15 @@ def profile():
         total_revenue = sales_stats.total_revenue if sales_stats and sales_stats.total_revenue is not None else Decimal(
             '0.00')
 
+        recommendations = []  # 农户页面不展示推荐
+
+    else:
+        # 🔥 新增: 仅为消费者角色获取推荐商品
+        recommendations = get_formatted_recommendations(user_id)
+
     # 修改返回参数，传递 total_revenue
     return render_template('profile.html', user=user, pending_orders_count=pending_orders_count,
-                           total_revenue=total_revenue)
+                           total_revenue=total_revenue, recommendations=recommendations)  # <-- 传递 recommendations
 
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
@@ -824,6 +904,7 @@ def toggle_product_status(product_id):
     flash(f'✅ 商品 **{product.name}** 已成功切换为 **{status_msg}** 状态！')
 
     return redirect(url_for('profile'))
+
 
 @app.route('/product/edit/<int:product_id>', methods=['GET', 'POST'])
 def edit_product(product_id):
@@ -991,6 +1072,9 @@ def delete_product(product_id):
         ItemSimilarity.query.filter(
             (ItemSimilarity.item_a_id == product_id) | (ItemSimilarity.item_b_id == product_id)
         ).delete()
+        # 🔥 新增：删除所有商品评价
+        ProductReview.query.filter_by(product_id=product_id).delete(synchronize_session=False)
+
         # 注意：OrderItem 不应删除，因为那是历史订单记录。
 
         # 6. 删除商品主表
@@ -1007,6 +1091,67 @@ def delete_product(product_id):
     return redirect(url_for('profile'))
 
 
+@app.route('/order/<int:order_id>/review', methods=['POST'])
+def submit_review(order_id):
+    """消费者：对已完成订单提交评价 (1-5星)"""
+    if 'user_id' not in session: return redirect(url_for('login'))
+    user_id = session['user_id']
+
+    order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
+
+    # 1. 状态检查：必须是已完成的订单才能评价
+    if order.status != 4:
+        flash('⚠️ 订单未完成，无法评价。')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    # 2. 检查是否已评价（虽然数据库约束已包含，但此为前端二次校验）
+    existing_review = ProductReview.query.filter_by(order_id=order_id).first()
+    if existing_review:
+        flash('⚠️ 您已评价过此订单。', 'error')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    try:
+        rating = int(request.form.get('rating'))
+        content = request.form.get('content')
+
+        if not (1 <= rating <= 5):
+            flash('评分必须在 1 到 5 星之间。', 'error')
+            return redirect(url_for('order_detail', order_id=order_id))
+
+        # 3. 确定评分目标商品 ID (简化：取订单中第一个商品作为评分目标)
+        # 注意：由于订单可能包含多个农户的商品，这里简化为只对第一个商品进行评价。
+        # 更好的做法是让用户选择评价哪个商品。但按照当前模型结构，我们只能关联到 Product ID。
+        first_order_item = OrderItem.query.filter_by(order_id=order_id).first()
+        if not first_order_item:
+            flash('❌ 订单中没有商品，无法评价。', 'error')
+            return redirect(url_for('order_detail', order_id=order_id))
+
+        product_id_to_rate = first_order_item.product_id
+
+        # 4. 创建新的评价记录
+        new_review = ProductReview(
+            user_id=user_id,
+            order_id=order_id,
+            product_id=product_id_to_rate,
+            rating=rating,
+            content=content
+        )
+        db.session.add(new_review)
+        db.session.commit()
+
+        flash('✅ 评价提交成功！感谢您的反馈。')
+
+    except Exception as e:
+        db.session.rollback()
+        # 尝试捕获唯一约束错误
+        if 'IntegrityError' in str(e):
+            flash('⚠️ 您已评价过此订单。', 'error')
+        else:
+            flash(f'❌ 评价提交失败: {e}', 'error')
+
+    return redirect(url_for('order_detail', order_id=order_id))
+
+
 # ----------------- 消费者订单管理 (Consumer Order Management) -----------------
 
 @app.route('/profile/orders')
@@ -1015,8 +1160,10 @@ def orders():
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
+    user_id = session['user_id']  # <-- 获取 user_id
+
     # 预加载 items 及其 sku 和 product
-    user_orders = Order.query.filter_by(user_id=session['user_id']).options(
+    user_orders = Order.query.filter_by(user_id=user_id).options(
         joinedload(Order.items).joinedload(OrderItem.sku).joinedload(ProductSKU.product)
     ).order_by(Order.order_date.desc()).all()
 
@@ -1030,7 +1177,11 @@ def orders():
         7: '已退款/售后完成'
     }
 
-    return render_template('orders.html', orders=user_orders, status_map=status_map)
+    # 🔥 新增: 获取推荐商品
+    recommendations = get_formatted_recommendations(user_id)
+
+    return render_template('orders.html', orders=user_orders, status_map=status_map,
+                           recommendations=recommendations)  # <-- 传递 recommendations
 
 
 @app.route('/order/<int:order_id>')
@@ -1076,7 +1227,12 @@ def order_detail(order_id):
 
     order.status_map = status_map
 
-    return render_template('order_detail.html', order=order, status_map=status_map)
+    # 🔥 新增：检查是否已评价
+    has_reviewed = None
+    if current_user:
+        has_reviewed = ProductReview.query.filter_by(order_id=order_id, user_id=current_user.user_id).first()
+
+    return render_template('order_detail.html', order=order, status_map=status_map, has_reviewed=has_reviewed)
 
 
 @app.route('/order/<int:order_id>/confirm_receipt', methods=['POST'])
@@ -1352,10 +1508,12 @@ def view_favorites():
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
+    user_id = session['user_id']  # <-- 获取 user_id
+
     # 1. 查询该用户所有 behavior_type=2 (收藏) 的日志
     # 按时间倒序排列，最近收藏的在前面
     logs = BehaviorLog.query.filter_by(
-        user_id=session['user_id'],
+        user_id=user_id,
         behavior_type=2
     ).order_by(BehaviorLog.timestamp.desc()).all()
 
@@ -1378,7 +1536,11 @@ def view_favorites():
             if pid in product_map:
                 favorites.append(product_map[pid])
 
-    return render_template('favorites.html', favorites=favorites)
+    # 🔥 新增: 获取推荐商品
+    recommendations = get_formatted_recommendations(user_id)
+
+    return render_template('favorites.html', favorites=favorites,
+                           recommendations=recommendations)  # <-- 传递 recommendations
 
 
 @app.route('/admin/dashboard')

@@ -55,6 +55,16 @@
                 <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#afterSalesModal">
                     申请售后
                 </button>
+
+                {% if not has_reviewed %}
+                <button type="button" class="btn btn-warning ms-1 fw-bold" data-bs-toggle="modal" data-bs-target="#reviewModal">
+                    ✨ 写评价
+                </button>
+                {% else %}
+                <button type="button" class="btn btn-outline-warning ms-1" disabled>
+                    已评价
+                </button>
+                {% endif %}
                 {% endif %}
 
                 {% if order.status == 1 or order.status == 2 %}
@@ -125,4 +135,37 @@
     </div>
 </div>
 
+<div class="modal fade" id="reviewModal" tabindex="-1" aria-labelledby="reviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('submit_review', order_id=order.order_id) }}">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="reviewModalLabel">对订单 #{{ order.order_id }} 进行评价</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>您的评价将用于改善农产品的质量和体验。</p>
+                    <div class="mb-3">
+                        <label for="rating" class="form-label fw-bold">星级评分 (1-5星)</label>
+                        <select name="rating" id="rating" class="form-select" required>
+                            <option value="5">⭐⭐⭐⭐⭐ 5星 (非常好)</option>
+                            <option value="4">⭐⭐⭐⭐ 4星 (好)</option>
+                            <option value="3">⭐⭐⭐ 3星 (一般)</option>
+                            <option value="2">⭐⭐ 2星 (差)</option>
+                            <option value="1">⭐ 1星 (非常差)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="content" class="form-label fw-bold">评价内容 (可选)</label>
+                        <textarea class="form-control" id="content" name="content" rows="3" placeholder="写下您的宝贵意见..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-warning fw-bold">提交评价</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}

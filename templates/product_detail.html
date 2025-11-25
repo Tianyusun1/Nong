@@ -24,6 +24,18 @@
                     📍 产地：{{ product.origin }}
                     </p>
 
+                {% if total_reviews_count > 0 %}
+                    <div class="mb-2">
+                        <span class="text-warning fw-bold fs-4 me-2">
+                            {# 循环输出平均星级，取整数部分 #}
+                            {% for _ in range(average_rating | int) %}⭐{% endfor %}
+                        </span>
+                        <span class="fs-5 fw-bold text-dark">{{ average_rating | round(1) }} 分</span>
+                        <span class="text-muted"> ({{ total_reviews_count }} 条评价)</span>
+                    </div>
+                {% else %}
+                    <p class="text-muted small">暂无客户评价</p>
+                {% endif %}
                 {% if not product.is_on_sale %}
                     <div class="alert alert-danger p-2 small">该商品已下架或正在维护中，暂时无法购买。</div>
                 {% endif %}
@@ -124,6 +136,36 @@
     </div>
 </div>
 
+<div class="row mt-4">
+    <div class="col-12">
+        <h4 class="mb-3">⭐ 客户评价 ({{ total_reviews_count }} 条)</h4>
+        <hr>
+
+        {% if reviews %}
+        <div class="list-group">
+            {% for review in reviews %}
+            <div class="list-group-item list-group-item-action flex-column align-items-start bg-light mb-2 rounded">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1 fw-bold text-dark">
+                        👤 {{ review.user.username }}
+                        <small class="text-warning fw-bold ms-2">
+                            {% for _ in range(review.rating) %}⭐{% endfor %}
+                        </small>
+                    </h6>
+                    <small class="text-muted">{{ review.review_date.strftime('%Y-%m-%d') }}</small>
+                </div>
+                <p class="mb-1 text-secondary" style="white-space: pre-line;">{{ review.content or '（该用户未填写评价内容）' }}</p>
+                <small class="text-muted">订单号: #{{ review.order_id }}</small>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="alert alert-info text-center">
+            还没有任何客户评价哦，快去购买并提交您的第一条评价吧！
+        </div>
+        {% endif %}
+    </div>
+</div>
 <div class="row mt-5">
     {% if recommendations %}
     <div class="col-12">

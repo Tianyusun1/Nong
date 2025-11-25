@@ -246,3 +246,23 @@ class Message(db.Model):
 
     # 允许模型重复加载
     __table_args__ = {'extend_existing': True}
+
+
+class ProductReview(db.Model):
+    """商品评价表：用户针对已购买订单的商品进行评价"""
+    __tablename__ = 'T_Product_Review'
+    review_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('T_Product.product_id'), nullable=False)  # 评分目标
+    order_id = db.Column(db.Integer, db.ForeignKey('T_Order.order_id'), nullable=False)  # 关联订单
+
+    rating = db.Column(db.Integer, nullable=False)  # 1-5星
+    content = db.Column(db.Text)  # 评论内容
+    review_date = db.Column(db.DateTime, default=datetime.now)
+
+    # 确保一个订单只能评价一次 (核心要求)
+    __table_args__ = (db.UniqueConstraint('order_id', name='_unique_order_review'),)
+
+    # 关联
+    product = db.relationship('Product', backref='reviews')
+    user = db.relationship('User', backref='reviews')
