@@ -825,7 +825,6 @@ def toggle_product_status(product_id):
 
     return redirect(url_for('profile'))
 
-
 @app.route('/product/edit/<int:product_id>', methods=['GET', 'POST'])
 def edit_product(product_id):
     """农户修改已发布的商品信息和规格"""
@@ -847,6 +846,15 @@ def edit_product(product_id):
             prices = request.form.getlist('price[]')
             stocks = request.form.getlist('stock[]')
 
+            # --- DEBUG LOG: 打印接收到的原始 SKU 数组 ---
+            print("\n--- DEBUG: RECEIVED SKU DATA ---")
+            print(f"SKU IDs: {sku_ids}")
+            print(f"Spec Names: {spec_names}")
+            print(f"Prices: {prices}")
+            print(f"Stocks: {stocks}")
+            print("----------------------------------\n")
+            # -----------------------------------------
+
             if not spec_names or len(spec_names) == 0:
                 raise ValueError("必须至少保留一个商品规格。")
 
@@ -865,9 +873,9 @@ def edit_product(product_id):
                 price_str = prices[i].strip()
                 stock_str = stocks[i].strip()
 
-                # --- 核心修复：跳过完全空白的新增行 ---
-                # 只有当它是新增行 (无 ID) 且所有核心字段都为空时才跳过。
-                if not sku_id_str and not spec_name_val and not price_str and not stock_str:
+                # --- 核心修复：跳过完全空白或仅 stock 为 '0' 的新增行 ---
+                # 只有当它是新增行 (无 ID)，且 名称、价格、库存（'','0'）都为空时才跳过。
+                if not sku_id_str and not spec_name_val and not price_str and (stock_str == '0' or not stock_str):
                     continue
                 # ------------------------------------
 
@@ -877,6 +885,7 @@ def edit_product(product_id):
 
                 # 严格校验：名称必须存在，价格必须大于零，库存不能为负数
                 if not spec_name_val or price_val <= Decimal('0.00') or stock_val < 0:
+                    # 校验失败时，抛出包含当前索引的详细错误信息
                     raise ValueError(f"规格 '{spec_name_val or '[名称为空]'}' 校验失败：价格必须大于零，库存不能为负数，且名称不能为空。")
 
                 sku_id_str = sku_ids[i].strip()
