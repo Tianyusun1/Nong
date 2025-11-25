@@ -121,54 +121,69 @@ def calculate_shipping_cost(cart_items, address):
     return Decimal('10.00')
 
 
-# 🔥 新增：可复用的推荐商品获取与格式化函数
+# 🔥 关键修复：可复用的推荐商品获取与格式化函数 (已修改逻辑以确保返回列表长度)
 def get_formatted_recommendations(user_id, num_recommendations=4):
     """获取并格式化推荐商品列表（包括 min_price 和 SKU信息）"""
     if not user_id:
         return []
 
-    products = []
-    # 尝试从推荐引擎获取推荐
+    # 1. 初始化查询基础
+    base_query = Product.query.filter(
+        Product.is_on_sale == True
+    ).options(joinedload(Product.skus))
+
+    products_to_return = []
+    recommended_ids = []
+
+    # 2. 尝试从推荐引擎获取 CF 推荐 ID
     try:
         with app.app_context():
-            # 1. 获取推荐 ID 列表
+            # 获取推荐 ID 列表
             recommended_ids = recommender.get_recommendations(user_id, num_recommendations=num_recommendations)
 
-        base_query = Product.query.filter(
-            Product.is_on_sale == True
-        ).options(joinedload(Product.skus))
-
         if recommended_ids:
-            # 2. 按照推荐顺序加载商品，并确保它们仍然在售
+            # 按照推荐顺序加载 CF 商品
             rec_products_unsorted = base_query.filter(
                 Product.product_id.in_(recommended_ids)
             ).all()
 
             product_map = {p.product_id: p for p in rec_products_unsorted}
-            products = [product_map[pid] for pid in recommended_ids if pid in product_map]
-
-        if not products:
-            # 3. 如果没有推荐结果，返回热门商品作为兜底 (简化逻辑: 按ID降序取前N个)
-            products = base_query.order_by(Product.product_id.desc()).limit(num_recommendations).all()
+            # 保持推荐顺序并过滤掉已下架/不存在的商品
+            products_to_return = [product_map[pid] for pid in recommended_ids if pid in product_map]
 
     except Exception as e:
-        # 兜底：如果推荐引擎出错，返回热门商品
-        print(f"⚠️ 推荐算法调用失败，已回退到热门列表: {e}")
-        products = Product.query.filter(
-            Product.is_on_sale == True
-        ).options(joinedload(Product.skus)).order_by(Product.product_id.desc()).limit(num_recommendations).all()
+        # 兜底：如果推荐引擎出错，记录错误
+        print(f"⚠️ 推荐算法调用失败: {e}")
+
+    # === 🔥 关键修复：混合热门商品进行填充（Padding） ===
+
+    # 3. 检查数量是否足够，如果不足，从热门商品中补充
+    if len(products_to_return) < num_recommendations:
+        # 获取当前已推荐的 ID 集合，避免重复
+        existing_ids = {p.product_id for p in products_to_return}
+        num_needed = num_recommendations - len(products_to_return)
+
+        # 补充热门商品 (按ID降序，并且必须是未被CF推荐的)
+        # 这里的 Product.product_id.desc() 就是实现“排名靠前”的简易逻辑
+        hot_products = base_query.filter(
+            Product.is_on_sale == True,
+            Product.product_id.notin_(existing_ids)
+        ).order_by(Product.product_id.desc()).limit(num_needed).all()
+
+        # 将热门商品添加到返回列表
+        products_to_return.extend(hot_products)
 
     # 4. 格式化输出 (适配模板需要的 product, min_price 结构)
     final_products_data = []
-    for product in products:
+    for product in products_to_return:
         min_price = min(sku.price for sku in product.skus) if product.skus else Decimal('0.00')
         final_products_data.append({
             'product': product,
             'min_price': min_price
         })
 
-    return final_products_data
-
+    # 确保最终只返回 num_recommendations 个
+    return final_products_data[:num_recommendations]
 
 # ==========================================
 # 🌐 核心页面路由

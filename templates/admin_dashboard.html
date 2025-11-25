@@ -3,7 +3,14 @@
 {% block content %}
 <div class="row">
     <div class="col-12">
-        <h3>🛡️ 管理员审核后台</h3>
+        <div class="d-flex justify-content-between align-items-center">
+            <h3>🛡️ 管理员审核后台</h3>
+            <a href="{{ url_for('train_model') }}" class="btn btn-warning btn-sm fw-bold"
+               onclick="return confirm('警告：训练模型需要较长时间，并会清空旧的相似度数据。确定要开始训练吗？')">
+                🚀 手动训练推荐模型
+            </a>
+        </div>
+
         <hr>
         <h5 class="mb-3">待审核农户列表</h5>
         
