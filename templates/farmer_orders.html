@@ -1,121 +1,179 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="fw-bold text-success">🚚 农户订单管理 - {{ title }}</h3>
-            <a href="{{ url_for('profile') }}" class="btn btn-outline-secondary btn-sm">返回个人中心</a>
+<div class="row justify-content-center">
+    <div class="col-lg-12 col-xl-10">
+        <!-- 页面头部 -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center">
+                <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                    <i class="bi bi-box-seam fs-4"></i>
+                </div>
+                <div>
+                    <h3 class="fw-bold text-dark mb-0">订单管理 - <span class="text-success">{{ title }}</span></h3>
+                    <small class="text-muted">处理发货、查看物流与售后服务</small>
+                </div>
+            </div>
+            <a href="{{ url_for('profile') }}" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i> 返回个人中心
+            </a>
         </div>
 
-        <ul class="nav nav-pills nav-fill mb-4 p-2 bg-light rounded">
-            <li class="nav-item">
-                <a class="nav-link {% if current_filter == 'pending' %}active{% endif %}" aria-current="page" href="{{ url_for('farmer_orders', status_filter='pending') }}">
-                    待发货 ({{ count_map['pending'] }})
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if current_filter == 'shipped' %}active{% endif %}" href="{{ url_for('farmer_orders', status_filter='shipped') }}">
-                    已发货/待收货 ({{ count_map['shipped'] }})
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if current_filter == 'completed' %}active{% endif %}" href="{{ url_for('farmer_orders', status_filter='completed') }}">
-                    已完成/售后结束 ({{ count_map['completed'] }})
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link {% if current_filter == 'aftersales' %}active{% endif %} bg-danger text-white" href="{{ url_for('farmer_orders', status_filter='aftersales') }}">
-                    ⚠️ 售后中 ({{ count_map['aftersales'] }})
-                </a>
-            </li>
-        </ul>
-
-        {% if orders %}
-        <div class="card shadow-sm">
-            <div class="card-body p-0">
-                <table class="table table-striped table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>订单编号</th>
-                            <th>下单时间</th>
-                            <th>总额</th>
-                            <th>收货人</th>
-                            <th>单号/原因</th>
-                            <th>状态</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for order in orders %}
-                        <tr>
-                            <td>#{{ order.order_id }}</td>
-                            <td>{{ order.order_date.strftime('%Y-%m-%d %H:%M') }}</td>
-                            <td><span class="text-danger fw-bold">￥{{ order.total_amount | round(2) }}</span></td>
-                            <td>{{ order.receiver_name }}</td>
-                            <td>
-                                {% if order.tracking_number %}
-                                    <span class="text-success small">{{ order.tracking_number }}</span>
-                                {% elif order.after_sales_reason %}
-                                    <span class="text-danger small" title="{{ order.after_sales_reason }}">售后原因</span>
-                                {% else %}
-                                    --
-                                {% endif %}
-                            </td>
-                            <td>
-                                <span class="badge
-                                    {% if order.status == 2 %}bg-warning text-dark
-                                    {% elif order.status == 3 %}bg-primary
-                                    {% elif order.status == 4 %}bg-success
-                                    {% elif order.status == 6 %}bg-danger
-                                    {% elif order.status == 7 %}bg-info
-                                    {% else %}bg-secondary{% endif %}">
-                                    {{ status_map[order.status] }}
-                                </span>
-                            </td>
-                            <td>
-                                <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-sm btn-outline-info me-1">详情</a>
-
-                                {% if order.status == 2 %}
-                                <button type="button" class="btn btn-sm btn-success"
-                                        data-bs-toggle="modal" data-bs-target="#shipModal{{ order.order_id }}">
-                                    🚚 发货
-                                </button>
-                                {% elif order.status == 6 %}
-                                <form method="POST" action="{{ url_for('handle_after_sales', order_id=order.order_id) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-sm btn-danger"
-                                            onclick="return confirm('确认同意退款/完成售后订单 #{{ order.order_id }} 吗？')">
-                                        处理售后
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <!-- 状态筛选导航栏 -->
+        <div class="card shadow-sm border-0 rounded-4 mb-4 overflow-hidden">
+            <div class="card-body p-2 bg-light">
+                <ul class="nav nav-pills nav-fill gap-2">
+                    <li class="nav-item">
+                        <a class="nav-link rounded-3 py-2 fw-bold {% if current_filter == 'pending' %}active bg-warning text-dark shadow-sm{% else %}text-secondary bg-white border border-light{% endif %}"
+                           href="{{ url_for('farmer_orders', status_filter='pending') }}">
+                            <i class="bi bi-hourglass-split me-1"></i>待发货
+                            <span class="badge {% if current_filter == 'pending' %}bg-white text-dark{% else %}bg-secondary bg-opacity-25 text-dark{% endif %} ms-2 rounded-pill">{{ count_map['pending'] }}</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link rounded-3 py-2 fw-bold {% if current_filter == 'shipped' %}active bg-primary shadow-sm{% else %}text-secondary bg-white border border-light{% endif %}"
+                           href="{{ url_for('farmer_orders', status_filter='shipped') }}">
+                            <i class="bi bi-truck me-1"></i>已发货/待收货
+                            <span class="badge {% if current_filter == 'shipped' %}bg-white text-primary{% else %}bg-secondary bg-opacity-25 text-dark{% endif %} ms-2 rounded-pill">{{ count_map['shipped'] }}</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link rounded-3 py-2 fw-bold {% if current_filter == 'completed' %}active bg-success shadow-sm{% else %}text-secondary bg-white border border-light{% endif %}"
+                           href="{{ url_for('farmer_orders', status_filter='completed') }}">
+                            <i class="bi bi-check-circle me-1"></i>已完成
+                            <span class="badge {% if current_filter == 'completed' %}bg-white text-success{% else %}bg-secondary bg-opacity-25 text-dark{% endif %} ms-2 rounded-pill">{{ count_map['completed'] }}</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link rounded-3 py-2 fw-bold {% if current_filter == 'aftersales' %}active bg-danger shadow-sm{% else %}text-danger bg-white border border-danger border-opacity-25{% endif %}"
+                           href="{{ url_for('farmer_orders', status_filter='aftersales') }}">
+                            <i class="bi bi-exclamation-circle me-1"></i>售后处理
+                            <span class="badge {% if current_filter == 'aftersales' %}bg-white text-danger{% else %}bg-danger bg-opacity-10 text-danger{% endif %} ms-2 rounded-pill">{{ count_map['aftersales'] }}</span>
+                        </a>
+                    </li>
+                </ul>
             </div>
         </div>
 
+        {% if orders %}
+        <div class="card shadow border-0 rounded-4 overflow-hidden">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light text-secondary small text-uppercase fw-bold">
+                            <tr>
+                                <th class="ps-4 py-3">订单编号 / 时间</th>
+                                <th>订单总额</th>
+                                <th>收货人</th>
+                                <th>物流 / 备注</th>
+                                <th>状态</th>
+                                <th class="text-end pe-4">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="border-top-0">
+                            {% for order in orders %}
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="fw-bold text-dark">#{{ order.order_id }}</div>
+                                    <small class="text-muted text-nowrap">{{ order.order_date.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </td>
+                                <td>
+                                    <span class="text-danger fw-bold fs-6">￥{{ order.total_amount | round(2) }}</span>
+                                </td>
+                                <td>
+                                    <div class="fw-bold text-dark">{{ order.receiver_name }}</div>
+                                </td>
+                                <td>
+                                    {% if order.tracking_number %}
+                                        <div class="d-flex align-items-center text-success small">
+                                            <i class="bi bi-upc-scan me-1"></i> {{ order.tracking_number }}
+                                        </div>
+                                    {% elif order.after_sales_reason %}
+                                        <div class="d-flex align-items-center text-danger small bg-danger bg-opacity-10 px-2 py-1 rounded w-fit-content" title="{{ order.after_sales_reason }}">
+                                            <i class="bi bi-info-circle me-1"></i> 售后原因
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted small">--</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if order.status == 2 %}
+                                        <span class="badge bg-warning text-dark border border-warning rounded-pill px-2"><i class="bi bi-box-seam me-1"></i>待发货</span>
+                                    {% elif order.status == 3 %}
+                                        <span class="badge bg-primary rounded-pill px-2"><i class="bi bi-truck me-1"></i>配送中</span>
+                                    {% elif order.status == 4 %}
+                                        <span class="badge bg-success rounded-pill px-2"><i class="bi bi-check-lg me-1"></i>已完成</span>
+                                    {% elif order.status == 6 %}
+                                        <span class="badge bg-danger rounded-pill px-2"><i class="bi bi-arrow-counterclockwise me-1"></i>售后中</span>
+                                    {% elif order.status == 7 %}
+                                        <span class="badge bg-info text-dark rounded-pill px-2">售后结束</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary rounded-pill px-2">{{ status_map[order.status] }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end pe-4">
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="查看详情">
+                                            详情
+                                        </a>
+
+                                        {% if order.status == 2 %}
+                                        <button type="button" class="btn btn-sm btn-success rounded-pill px-3 fw-bold shadow-sm"
+                                                data-bs-toggle="modal" data-bs-target="#shipModal{{ order.order_id }}">
+                                            <i class="bi bi-box-seam me-1"></i>发货
+                                        </button>
+                                        {% elif order.status == 6 %}
+                                        <form method="POST" action="{{ url_for('handle_after_sales', order_id=order.order_id) }}" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-danger rounded-pill px-3 fw-bold shadow-sm"
+                                                    onclick="return confirm('确认同意退款/完成售后订单 #{{ order.order_id }} 吗？')">
+                                                <i class="bi bi-check-circle me-1"></i>同意退款
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 发货模态框 (保持 Loop 结构) -->
         {% for order in orders %}
-        <div class="modal fade" id="shipModal{{ order.order_id }}" tabindex="-1" aria-labelledby="shipModalLabel{{ order.order_id }}" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
+        <div class="modal fade" id="shipModal{{ order.order_id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg rounded-4">
                     <form method="POST" action="{{ url_for('ship_order', order_id=order.order_id) }}">
-                        <div class="modal-header">
-                            <h5 class="modal-title" id="shipModalLabel{{ order.order_id }}">订单 #{{ order.order_id }} 确认发货</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <div class="modal-header bg-success text-white border-bottom-0">
+                            <h5 class="modal-title fw-bold"><i class="bi bi-truck me-2"></i>订单发货确认</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
-                        <div class="modal-body">
-                            <p>请填写物流单号后进行发货。发货后订单状态将变更为“待收货”。</p>
+                        <div class="modal-body p-4">
                             <div class="mb-3">
-                                <label for="tracking_number{{ order.order_id }}" class="form-label">发货单号 (必填)</label>
-                                <input type="text" class="form-control" id="tracking_number{{ order.order_id }}" name="tracking_number" required>
+                                <label class="form-label text-muted small fw-bold">订单编号</label>
+                                <div class="form-control-plaintext fw-bold text-dark">#{{ order.order_id }}</div>
+                            </div>
+                            <div class="alert alert-light border mb-4">
+                                <div class="d-flex">
+                                    <i class="bi bi-info-circle-fill text-success me-2 mt-1"></i>
+                                    <small class="text-secondary">请填写准确的物流单号。发货后，订单状态将立即变更为“待收货”，用户将会收到通知。</small>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="tracking_number{{ order.order_id }}" class="form-label fw-bold text-dark">物流/快递单号 <span class="text-danger">*</span></label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0"><i class="bi bi-upc-scan"></i></span>
+                                    <input type="text" class="form-control bg-light border-start-0 ps-0" id="tracking_number{{ order.order_id }}" name="tracking_number" required placeholder="请输入快递单号">
+                                </div>
                             </div>
                         </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                            <button type="submit" class="btn btn-success">确认发货</button>
+                        <div class="modal-footer border-top-0 pt-0 pb-4 px-4">
+                            <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                            <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm">
+                                <i class="bi bi-send me-1"></i> 确认发货
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -124,12 +182,28 @@
         {% endfor %}
 
         {% else %}
-        <div class="text-center py-5">
-            <div class="display-4 text-muted">🎉</div>
-            <p class="lead">当前没有需要您处理的订单。</p>
-            <a href="{{ url_for('index') }}" class="btn btn-success">去市集逛逛</a>
+        <!-- 空状态 -->
+        <div class="text-center py-5 bg-white rounded-4 shadow-sm mt-3">
+            <div class="mb-4">
+                <div class="d-inline-block bg-light rounded-circle p-4">
+                    <i class="bi bi-clipboard-check display-1 text-muted opacity-25"></i>
+                </div>
+            </div>
+            <h4 class="fw-bold text-dark mb-2">暂无相关订单</h4>
+            <p class="text-muted mb-4">当前状态下没有需要处理的订单。</p>
+            {% if current_filter != 'pending' %}
+                <a href="{{ url_for('farmer_orders', status_filter='pending') }}" class="btn btn-outline-success rounded-pill px-4">查看待发货订单</a>
+            {% else %}
+                <a href="{{ url_for('index') }}" class="btn btn-success rounded-pill px-4 shadow-sm">去市集看看</a>
+            {% endif %}
         </div>
         {% endif %}
     </div>
 </div>
+
+<style>
+    .w-fit-content {
+        width: fit-content;
+    }
+</style>
 {% endblock %}

@@ -1,12 +1,21 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-8 offset-md-2">
-        <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
-            <h3 class="fw-bold text-success">🌱 乡村生活 & 好物推荐</h3>
-            <a href="{{ url_for('new_post') }}" class="btn btn-success">
-                ✍️ 我要发帖
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <!-- 页面头部 -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center">
+                 <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                    <i class="bi bi-people-fill fs-4"></i>
+                </div>
+                <div>
+                    <h3 class="fw-bold text-dark mb-0">乡村生活 & 好物推荐</h3>
+                    <small class="text-muted">分享田园生活，发现源头好物</small>
+                </div>
+            </div>
+            <a href="{{ url_for('new_post') }}" class="btn btn-success rounded-pill px-4 fw-bold shadow-sm hover-lift">
+                <i class="bi bi-pencil-square me-1"></i> 我要发帖
             </a>
         </div>
 
@@ -14,67 +23,116 @@
         {% set post = post_data.post %}
         {% set min_price = post_data.min_price %}
 
-        <div class="card mb-3 shadow-sm border-0 hover-shadow">
-            <div class="card-body">
-                <h5 class="card-title fw-bold text-dark">
-                    {{ post.title }}
-                </h5>
-                <h6 class="card-subtitle mb-3 text-muted border-bottom pb-2 small">
-                    <span class="me-3">👤 {{ post.author.username }}</span>
-                    <span>🕒 {{ post.post_date.strftime('%Y-%m-%d %H:%M') }}</span>
-                </h6>
+        <div class="card mb-4 border-0 shadow-sm rounded-4 overflow-hidden post-card">
+            <div class="card-body p-4">
+                <!-- 1. 作者信息栏 -->
+                <div class="d-flex align-items-center mb-3">
+                    <div class="bg-gradient bg-light text-success border border-success border-opacity-25 rounded-circle d-flex align-items-center justify-content-center shadow-sm me-3" style="width: 48px; height: 48px;">
+                        <span class="fs-5 fw-bold">{{ post.author.username[0]|upper }}</span>
+                    </div>
+                    <div>
+                        <h6 class="mb-0 fw-bold text-dark">{{ post.author.username }}</h6>
+                        <small class="text-muted" style="font-size: 0.85rem;">
+                            <i class="bi bi-clock me-1"></i>{{ post.post_date.strftime('%Y-%m-%d %H:%M') }}
+                        </small>
+                    </div>
+                </div>
 
-                <p class="card-text text-secondary" style="white-space: pre-line;">{{ post.content }}</p>
+                <!-- 2. 帖子内容 -->
+                <h5 class="card-title fw-bold text-dark mb-2">{{ post.title }}</h5>
+                <p class="card-text text-secondary mb-3" style="white-space: pre-line; line-height: 1.6;">{{ post.content }}</p>
 
-                <!-- 🔥 新增：如果帖子有图片，显示图片 -->
+                <!-- 3. 帖子配图 (如果有) -->
                 {% if post.image_url %}
-                <div class="mb-3">
-                    <img src="{{ post.image_url }}" class="img-fluid rounded shadow-sm" alt="帖子配图" style="max-height: 250px; object-fit: cover;">
+                <div class="mb-4">
+                    <img src="{{ post.image_url }}" class="img-fluid rounded-3 shadow-sm w-100" alt="帖子配图" style="max-height: 400px; object-fit: cover;">
                 </div>
                 {% endif %}
 
+                <!-- 4. 关联商品 (内嵌卡片风格) -->
                 {% if post.related_product %}
-                <div class="mt-3 p-2 border rounded bg-light d-flex align-items-center" style="max-width: 100%;">
-                    <div class="me-3">
-                        {% if post.related_product.image_url %}
-                            <img src="{{ post.related_product.image_url }}" class="rounded" style="width: 60px; height: 60px; object-fit: cover;" alt="{{ post.related_product.name }}">
-                        {% else %}
-                            <div class="bg-secondary rounded d-flex align-items-center justify-content-center text-white" style="width: 60px; height: 60px;">无图</div>
-                        {% endif %}
+                <div class="card bg-light border-0 rounded-3 mt-3 position-relative overflow-hidden product-link-card">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center">
+                            <!-- 商品图 -->
+                            <div class="flex-shrink-0 me-3">
+                                {% if post.related_product.image_url %}
+                                    <img src="{{ post.related_product.image_url }}" class="rounded-3 shadow-sm" style="width: 80px; height: 80px; object-fit: cover;" alt="{{ post.related_product.name }}">
+                                {% else %}
+                                    <div class="bg-white rounded-3 d-flex align-items-center justify-content-center text-secondary border" style="width: 80px; height: 80px;">
+                                        <i class="bi bi-image fs-4 opacity-50"></i>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            <!-- 商品信息 -->
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="d-flex align-items-center mb-1">
+                                    <span class="badge bg-success bg-opacity-10 text-success me-2">推荐好物</span>
+                                    <h6 class="mb-0 fw-bold text-dark text-truncate">{{ post.related_product.name }}</h6>
+                                </div>
+                                <div class="text-danger fw-bold fs-5">
+                                    {% if min_price is not none and min_price > 0 %}
+                                        <small class="fs-6">￥</small>{{ min_price | round(2) }} <small class="text-muted fw-normal" style="font-size: 0.8rem;">起</small>
+                                    {% else %}
+                                        <span class="text-muted fs-6">暂无价格</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- 购买按钮 -->
+                            <div class="ms-3">
+                                <a href="{{ url_for('product_detail', product_id=post.related_product.product_id) }}" class="btn btn-white border text-success rounded-pill fw-bold btn-sm px-3 shadow-sm stretched-link">
+                                    去看看 <i class="bi bi-chevron-right"></i>
+                                </a>
+                            </div>
+                        </div>
                     </div>
-
-                    <div class="flex-grow-1">
-                        <h6 class="mb-0 fw-bold text-truncate" style="max-width: 200px;">{{ post.related_product.name }}</h6>
-
-                        <small class="text-danger fw-bold">
-                            {% if min_price is not none and min_price > 0 %}
-                                ￥{{ min_price | round(2) }} (起)
-                            {% else %}
-                                暂无价格
-                            {% endif %}
-                        </small>
-                    </div>
-
-                    <a href="{{ url_for('product_detail', product_id=post.related_product.product_id) }}" class="btn btn-sm btn-success">
-                        去购买 🛒
-                    </a>
                 </div>
                 {% endif %}
             </div>
+            <!-- 已移除底部互动栏 -->
         </div>
         {% else %}
-        <div class="text-center py-5 bg-light rounded">
-            <div class="display-1">🚜</div>
-            <h4 class="text-muted mt-3">社区暂时还没有帖子哦</h4>
-            <p class="text-secondary">快点击右上角，成为第一个分享的人吧！</p>
-            <a href="{{ url_for('new_post') }}" class="btn btn-outline-success mt-2">发布第一条动态</a>
+        <!-- 空状态 -->
+        <div class="text-center py-5 bg-white rounded-4 shadow-sm border-0">
+            <div class="mb-4">
+                <div class="d-inline-block bg-light rounded-circle p-4">
+                    <i class="bi bi-chat-square-quote display-4 text-muted opacity-50"></i>
+                </div>
+            </div>
+            <h4 class="fw-bold text-dark mb-2">社区暂时还没有帖子</h4>
+            <p class="text-muted mb-4">快成为第一个分享乡村生活的人吧！</p>
+            <a href="{{ url_for('new_post') }}" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm hover-lift">
+                <i class="bi bi-pencil-square me-2"></i>发布第一条动态
+            </a>
         </div>
         {% endfor %}
     </div>
 </div>
 
 <style>
-    .hover-shadow { transition: box-shadow 0.3s; }
-    .hover-shadow:hover { box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; }
+    .post-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .post-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important;
+    }
+    .hover-lift {
+        transition: transform 0.2s;
+    }
+    .hover-lift:hover {
+        transform: translateY(-2px);
+    }
+    .min-width-0 {
+        min-width: 0;
+    }
+    .product-link-card {
+        transition: background-color 0.2s;
+    }
+    .product-link-card:hover {
+        background-color: #f0fdf4 !important; /* 悬停时变极浅绿色 */
+    }
 </style>
 {% endblock %}

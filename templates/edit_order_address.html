@@ -1,33 +1,66 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <div class="card shadow mt-4">
-            <div class="card-header bg-warning text-dark">
-                <h4 class="mb-0">📍 修改订单 #{{ order.order_id }} 收货信息</h4>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-info">
-                    <strong>当前订单状态:</strong> {{ order.status_map[order.status] }}。修改仅在订单未发货前有效。
+<div class="row justify-content-center align-items-center" style="min-height: 60vh;">
+    <div class="col-lg-6 col-md-8">
+
+        <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+            <!-- 卡片头部 -->
+            <div class="card-header bg-white border-bottom p-4">
+                <div class="d-flex align-items-center">
+                    <div class="bg-warning bg-opacity-10 text-dark rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                        <i class="bi bi-pencil-square fs-4 text-warning"></i>
+                    </div>
+                    <div>
+                        <h4 class="fw-bold text-dark mb-0">修改收货信息</h4>
+                        <small class="text-muted">订单号 #{{ order.order_id }}</small>
+                    </div>
                 </div>
+            </div>
+
+            <div class="card-body p-4">
+                <!-- 状态提示 -->
+                <div class="alert alert-warning bg-warning bg-opacity-10 border-0 rounded-3 d-flex align-items-start mb-4" role="alert">
+                    <i class="bi bi-info-circle-fill text-warning me-2 mt-1"></i>
+                    <div>
+                        <div class="mb-1">
+                            <strong>当前状态:</strong>
+                            <span class="badge bg-warning text-dark mx-1 shadow-sm">{{ order.status_map[order.status] }}</span>
+                        </div>
+                        <div class="small text-secondary opacity-75">温馨提示：修改收货信息仅在订单未发货前有效，发货后请联系物流或农户协商。</div>
+                    </div>
+                </div>
+
                 <form method="POST" action="{{ url_for('edit_order_address', order_id=order.order_id) }}">
-                    <div class="mb-3">
-                        <label class="form-label">收货人姓名</label>
-                        <input type="text" name="receiver_name" class="form-control" value="{{ order.receiver_name or '' }}" required>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label text-muted small fw-bold">收货人姓名</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-person"></i></span>
+                                <input type="text" name="receiver_name" class="form-control bg-light border-start-0" value="{{ order.receiver_name or '' }}" required placeholder="请输入姓名">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-muted small fw-bold">联系电话</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-phone"></i></span>
+                                <input type="text" name="receiver_phone" class="form-control bg-light border-start-0" value="{{ order.receiver_phone or '' }}" required placeholder="请输入电话">
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label text-muted small fw-bold">详细收货地址</label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-geo-alt"></i></span>
+                                <textarea name="address" class="form-control bg-light border-start-0" rows="3" required placeholder="请输入详细地址" style="resize: none;">{{ order.address or '' }}</textarea>
+                            </div>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">联系电话</label>
-                        <input type="text" name="receiver_phone" class="form-control" value="{{ order.receiver_phone or '' }}" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">收货地址</label>
-                        <textarea name="address" class="form-control" rows="3" required>{{ order.address or '' }}</textarea>
-                    </div>
-                    
-                    <div class="d-flex justify-content-end gap-2">
-                        <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-outline-secondary">取消</a>
-                        <button type="submit" class="btn btn-warning fw-bold">保存修改</button>
+
+                    <div class="d-flex justify-content-end gap-2 mt-4 pt-2 border-top">
+                        <a href="{{ url_for('order_detail', order_id=order.order_id) }}" class="btn btn-light rounded-pill px-4 fw-bold text-muted">取消</a>
+                        <button type="submit" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm">
+                            <i class="bi bi-check-lg me-1"></i> 保存修改
+                        </button>
                     </div>
                 </form>
             </div>

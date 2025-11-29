@@ -2,45 +2,110 @@
 
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-8">
-        <h3 class="fw-bold mb-4 text-success">💬 我的消息中心 (会话列表)</h3>
+    <div class="col-lg-8 col-xl-7">
+        <!-- 页面头部 -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center">
+                <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                    <i class="bi bi-chat-dots-fill fs-4"></i>
+                </div>
+                <div>
+                    <h3 class="fw-bold text-dark mb-0">消息中心</h3>
+                    <small class="text-muted">查看所有的沟通记录</small>
+                </div>
+            </div>
+            {% if previews %}
+            <span class="badge bg-success rounded-pill px-3 py-2">
+                共 {{ previews|length }} 个会话
+            </span>
+            {% endif %}
+        </div>
 
         {% if previews %}
-            <div class="list-group shadow-sm">
-            {% for p in previews %}
-                <a href="{{ url_for('chat_detail', conv_id=p.conv_id) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-start py-3">
-                    <div class="d-flex align-items-center">
-                        <div class="bg-light rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 45px; height: 45px; font-size: 20px;">
-                            👤
-                        </div>
-                        <div>
-                            <h5 class="mb-1 fw-bold text-dark">
-                                {{ p.other_user.username }}
-                            </h5>
-                            <p class="mb-1 text-muted text-truncate small" style="max-width: 400px;">
-                                {{ p.last_message }}
-                            </p>
-                        </div>
-                    </div>
+            <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+                <div class="list-group list-group-flush">
+                {% for p in previews %}
+                    <a href="{{ url_for('chat_detail', conv_id=p.conv_id) }}" class="list-group-item list-group-item-action p-3 border-bottom chat-item position-relative">
+                        <div class="d-flex align-items-center">
+                            <!-- 头像部分 -->
+                            <div class="position-relative me-3">
+                                <div class="bg-gradient bg-light text-success border border-success border-opacity-25 rounded-circle d-flex align-items-center justify-content-center shadow-sm" style="width: 56px; height: 56px;">
+                                    <span class="fs-4 fw-bold">{{ p.other_user.username[0]|upper }}</span>
+                                </div>
+                                {% if p.unread_count > 0 %}
+                                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger border border-white shadow-sm" style="font-size: 0.75rem;">
+                                    {{ p.unread_count }}
+                                    <span class="visually-hidden">未读消息</span>
+                                </span>
+                                {% endif %}
+                            </div>
 
-                    <div class="text-end">
-                        <small class="text-muted d-block mb-1">
-                            {{ p.last_message_time.strftime('%Y-%m-%d %H:%M') }}
-                        </small>
-                        {% if p.unread_count > 0 %}
-                            <span class="badge bg-danger rounded-pill">{{ p.unread_count }}</span>
-                        {% endif %}
-                    </div>
-                </a>
-            {% endfor %}
+                            <!-- 内容部分 -->
+                            <div class="flex-grow-1 min-width-0">
+                                <div class="d-flex justify-content-between align-items-baseline mb-1">
+                                    <h6 class="mb-0 fw-bold text-dark fs-5">{{ p.other_user.username }}</h6>
+                                    <small class="text-muted ms-2" style="font-size: 0.8rem;">
+                                        {{ p.last_message_time.strftime('%Y-%m-%d %H:%M') }}
+                                    </small>
+                                </div>
+                                <p class="mb-0 text-secondary text-truncate pe-3" style="max-width: 90%;">
+                                    {% if p.last_message.startswith('【订单咨询】') %}
+                                        <span class="text-warning"><i class="bi bi-receipt"></i> [订单咨询]</span> {{ p.last_message|replace('【订单咨询】', '') }}
+                                    {% else %}
+                                        {{ p.last_message }}
+                                    {% endif %}
+                                </p>
+                            </div>
+
+                            <!-- 右侧箭头 (仅装饰) -->
+                            <div class="text-muted opacity-25 ms-2">
+                                <i class="bi bi-chevron-right"></i>
+                            </div>
+                        </div>
+                    </a>
+                {% endfor %}
+                </div>
             </div>
         {% else %}
-            <div class="text-center py-5 bg-light rounded shadow-sm">
-                <div class="display-1 text-muted">✉️</div>
-                <p class="lead">暂无会话，快去联系农户开始您的第一场对话吧！</p>
-                <a href="{{ url_for('index') }}" class="btn btn-success btn-lg">去农产市集逛逛</a>
+            <!-- 空状态 -->
+            <div class="text-center py-5 bg-white rounded-4 shadow-sm border-0 mt-3">
+                <div class="mb-4 position-relative d-inline-block">
+                    <div class="bg-success bg-opacity-10 rounded-circle p-4" style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center;">
+                        <i class="bi bi-chat-square-text display-4 text-success opacity-50"></i>
+                    </div>
+                    <span class="position-absolute top-0 end-0 badge rounded-pill bg-warning text-dark shadow-sm">
+                        <i class="bi bi-bell"></i>
+                    </span>
+                </div>
+                <h4 class="fw-bold text-dark mb-2">暂无消息</h4>
+                <p class="text-muted mb-4 mx-auto" style="max-width: 400px;">
+                    您还没有与任何农户进行过沟通。<br>
+                    去市集看看，遇到感兴趣的商品可以随时联系农户哦！
+                </p>
+                <a href="{{ url_for('index') }}" class="btn btn-success rounded-pill px-4 py-2 fw-bold shadow-sm hover-lift">
+                    <i class="bi bi-shop me-2"></i>去农产市集逛逛
+                </a>
             </div>
         {% endif %}
     </div>
 </div>
+
+<style>
+    .chat-item {
+        transition: background-color 0.2s ease, transform 0.2s ease;
+    }
+    .chat-item:hover {
+        background-color: #f8fdf9 !important; /* 极浅的绿色背景 */
+        z-index: 1; /* 确保悬停时在最上层 */
+    }
+    .min-width-0 {
+        min-width: 0; /* 修复 flexbox 中的 text-truncate 问题 */
+    }
+    .hover-lift {
+        transition: transform 0.2s;
+    }
+    .hover-lift:hover {
+        transform: translateY(-2px);
+    }
+</style>
 {% endblock %}

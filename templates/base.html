@@ -5,13 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>智慧助农平台</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+
     <style>
-        /* 简单的自定义样式，营造助农绿色氛围 */
-        body { background-color: #f4f9f4; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .navbar { background-color: #2d6a4f; }
-        .btn-primary { background-color: #40916c; border-color: #40916c; }
-        .btn-primary:hover { background-color: #1b4332; }
-        .card { border: none; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        :root {
+            /* 定义更协调的自然色系 */
+            --primary-green: #2d6a4f;      /* 深绿：导航栏、主文字 */
+            --medium-green: #40916c;       /* 中绿：主按钮 */
+            --light-green: #52b788;        /* 浅绿：悬停高亮 */
+            --accent-green: #d8f3dc;       /* 极浅绿：背景装饰 */
+            --bg-color: #f8fdf9;           /* 页面背景 */
+            --card-shadow: 0 10px 20px rgba(45, 106, 79, 0.05); /* 柔和阴影 */
+            --hover-shadow: 0 15px 30px rgba(45, 106, 79, 0.15);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+            color: #333;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* 导航栏优化：毛玻璃效果 */
+        .navbar {
+            background-color: rgba(45, 106, 79, 0.95) !important;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            padding: 1rem 0;
+            transition: all 0.3s ease;
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            letter-spacing: 1px;
+            font-size: 1.4rem;
+        }
+
+        .nav-link {
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: #b7e4c7 !important;
+        }
+
+        /* 按钮全局优化 */
+        .btn {
+            border-radius: 50px; /* 胶囊圆角 */
+            padding: 0.5rem 1.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary, .btn-success {
+            background-color: var(--medium-green);
+            border-color: var(--medium-green);
+        }
+
+        .btn-primary:hover, .btn-success:hover {
+            background-color: var(--primary-green);
+            border-color: var(--primary-green);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(64, 145, 108, 0.3);
+        }
+
+        /* 卡片全局优化 */
+        .card {
+            border: none;
+            border-radius: 16px;
+            box-shadow: var(--card-shadow);
+            background: #fff;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden; /* 防止图片溢出圆角 */
+        }
+
+        /* Alert 消息优化 */
+        .alert {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
     </style>
 </head>
 <body>
@@ -26,34 +100,45 @@
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">农产市集</a></li>
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('community') }}">乡村社区</a></li>
                 </ul>
-                <ul class="navbar-nav">
+                <ul class="navbar-nav align-items-center">
                     <li class="nav-item">
-                        <a class="nav-link me-2" href="{{ url_for('view_cart') }}">🛒 购物车</a>
+                        <a class="nav-link me-2" href="{{ url_for('view_cart') }}">
+                            <i class="bi bi-cart3"></i> 购物车
+                        </a>
                     </li>
 
                     <li class="nav-item">
-                        <a class="nav-link me-2" href="{{ url_for('chat_list') }}">💬 消息</a>
+                        <a class="nav-link me-2" href="{{ url_for('chat_list') }}">
+                            <i class="bi bi-chat-dots"></i> 消息
+                        </a>
                     </li>
 
                     {% if current_user %}
-                        <li class="nav-item"><a class="nav-link active" href="{{ url_for('profile') }}">👤 {{ current_user.username }}</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">退出</a></li>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link active d-flex align-items-center gap-2" href="{{ url_for('profile') }}">
+                                <div class="bg-light text-success rounded-circle d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                                    <i class="bi bi-person-fill"></i>
+                                </div>
+                                {{ current_user.username }}
+                            </a>
+                        </li>
+                        <li class="nav-item ms-2"><a class="btn btn-outline-light btn-sm" href="{{ url_for('logout') }}">退出</a></li>
                     {% else %}
                         <li class="nav-item"><a class="nav-link" href="{{ url_for('login') }}">登录</a></li>
-                        <li class="nav-item"><a class="btn btn-light text-success btn-sm ms-2" href="{{ url_for('register') }}">注册</a></li>
+                        <li class="nav-item"><a class="btn btn-light text-success btn-sm ms-2 shadow-sm" href="{{ url_for('register') }}">注册</a></li>
                     {% endif %}
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container" style="margin-top: 80px;">
+    <div class="container" style="margin-top: 100px; padding-bottom: 40px;">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    {# FIX: 使用 category 决定 alert 颜色 #}
                     {% set alert_class = 'alert-danger' if category == 'error' else 'alert-success' %}
-                    <div class="alert {{ alert_class }} alert-dismissible fade show shadow-sm" role="alert">
+                    <div class="alert {{ alert_class }} alert-dismissible fade show shadow-sm mb-4" role="alert">
+                        <i class="bi {{ 'bi-exclamation-circle-fill' if category == 'error' else 'bi-check-circle-fill' }} me-2"></i>
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                     </div>
@@ -63,6 +148,7 @@
 
         {% block content %}{% endblock %}
     </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

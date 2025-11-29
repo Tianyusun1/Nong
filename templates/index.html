@@ -1,124 +1,242 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="p-5 mb-4 bg-success rounded-3 text-white shadow-sm" style="background: linear-gradient(135deg, #198754 0%, #20c997 100%);">
-    <div class="container-fluid py-2 text-center">
-        <h1 class="display-5 fw-bold mb-3">🌾 寻找源头好农货</h1>
-        <p class="fs-5 mb-4">连接田间地头与城市餐桌，每一份购买都是对乡村振兴的支持。</p>
+<div class="position-relative overflow-hidden p-3 p-md-5 text-center bg-light hero-banner" style="margin-top: -1.5rem;">
+    <div class="hero-bg-overlay"></div>
+
+    <div class="col-md-8 p-lg-5 mx-auto my-4 position-relative z-index-1 text-white">
+        <h1 class="display-4 fw-bold mb-3">🌾 寻找源头好农货</h1>
+        <p class="lead fw-normal mb-4 text-white-50">连接田间地头与城市餐桌，每一份购买都是对乡村振兴的支持。</p>
 
         <div class="row justify-content-center">
-            <div class="col-md-8 col-lg-6">
-                <form action="{{ url_for('index') }}" method="get" class="d-flex shadow-sm rounded-pill bg-white p-1">
-                    <input class="form-control border-0 rounded-pill ps-4" type="search" name="q" value="{{ search_query or '' }}" placeholder="🔍 搜索商品名称、产地或分类..." aria-label="Search">
-                    <button class="btn btn-warning rounded-pill px-4 fw-bold" type="submit">搜索</button>
+            <div class="col-lg-8">
+                <form action="{{ url_for('index') }}" method="get" class="search-box p-1 bg-white rounded-pill shadow-lg d-flex">
+                    <div class="input-group">
+                        <span class="input-group-text border-0 bg-transparent ps-3"><i class="bi bi-search text-muted"></i></span>
+                        <input type="search" name="q" value="{{ search_query or '' }}" class="form-control border-0 shadow-none" placeholder="搜索农产品（如：苹果、五常大米）..." aria-label="Search">
+                    </div>
+                    <button class="btn btn-warning rounded-pill px-4 fw-bold m-1" type="submit">搜索</button>
                 </form>
+
+                <div class="mt-3 small text-white-50">
+                    <span class="me-2"><i class="bi bi-fire text-warning"></i> 大家都爱买:</span>
+
+                    {% if popular_products %}
+                        {# 情况A：有真实销量数据，显示真实数据 #}
+                        {% for hot_item in popular_products %}
+                            <a href="{{ url_for('index', q=hot_item.name) }}"
+                               class="badge bg-white bg-opacity-25 text-white text-decoration-none fw-normal me-1 hover-scale">
+                               {% if '米' in hot_item.name %}🍚
+                               {% elif '果' in hot_item.name or '梨' in hot_item.name %}🍎
+                               {% elif '鸡' in hot_item.name or '肉' in hot_item.name or '鸭' in hot_item.name %}🥩
+                               {% elif '油' in hot_item.name %}🏺
+                               {% else %}🌿{% endif %}
+                               {{ hot_item.name }}
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        {# 情况B：没有数据时，强制显示默认热门词，绝不留白 #}
+                        <a href="{{ url_for('index', q='苹果') }}" class="badge bg-white bg-opacity-25 text-white text-decoration-none fw-normal me-1 hover-scale">🍎 红富士</a>
+                        <a href="{{ url_for('index', q='大米') }}" class="badge bg-white bg-opacity-25 text-white text-decoration-none fw-normal me-1 hover-scale">🍚 五常大米</a>
+                        <a href="{{ url_for('index', q='土鸡') }}" class="badge bg-white bg-opacity-25 text-white text-decoration-none fw-normal me-1 hover-scale">🐔 散养土鸡</a>
+                        <a href="{{ url_for('index', q='玉米') }}" class="badge bg-white bg-opacity-25 text-white text-decoration-none fw-normal me-1 hover-scale">🌽 甜玉米</a>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-{% with messages = get_flashed_messages() %}
-    {% if messages %}
-        <div class="row mb-4">
-            <div class="col-12">
-                {% for message in messages %}
-                <div class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
-                    {{ message }}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-                {% endfor %}
+<div class="container my-5">
+    <div class="row g-4 text-center">
+        <div class="col-md-4">
+            <div class="feature-box p-4 rounded-3 h-100 bg-white shadow-sm border-bottom border-4 border-success">
+                <div class="icon-box mb-3 text-success"><i class="bi bi-tree-fill display-6"></i></div>
+                <h5 class="fw-bold">源头直采</h5>
+                <p class="text-muted small mb-0">深入田间地头，无中间商赚差价，保证一手新鲜。</p>
             </div>
         </div>
-    {% endif %}
-{% endwith %}
+        <div class="col-md-4">
+            <div class="feature-box p-4 rounded-3 h-100 bg-white shadow-sm border-bottom border-4 border-warning">
+                <div class="icon-box mb-3 text-warning"><i class="bi bi-shield-check display-6"></i></div>
+                <h5 class="fw-bold">品质严选</h5>
+                <p class="text-muted small mb-0">严格的农产品质量把控，让您买得放心，吃得健康。</p>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="feature-box p-4 rounded-3 h-100 bg-white shadow-sm border-bottom border-4 border-info">
+                <div class="icon-box mb-3 text-info"><i class="bi bi-truck display-6"></i></div>
+                <h5 class="fw-bold">助农专递</h5>
+                <p class="text-muted small mb-0">高效物流配送体系，缩短从枝头到舌尖的时间。</p>
+            </div>
+        </div>
+    </div>
+</div>
 
-<div class="row align-items-center mb-4">
-    <div class="col">
+<div class="container mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            {% if search_query %}
+                <h3 class="mb-0 fw-bold">🔍 "{{ search_query }}" 搜索结果</h3>
+                <span class="text-muted small">共找到 {{ products|length }} 件相关农货</span>
+            {% else %}
+                <h3 class="mb-0 fw-bold text-dark"><i class="bi bi-basket2-fill text-success me-2"></i>当季热卖</h3>
+                <span class="text-muted small">时令生鲜，不时不食</span>
+            {% endif %}
+        </div>
         {% if search_query %}
-            <h4 class="mb-0">🔍 "{{ search_query }}" 的搜索结果 <small class="text-muted fs-6">({{ products|length }}个)</small></h4>
-        {% else %}
-            <h3 class="mb-0 fw-bold text-dark border-start border-4 border-success ps-3">🔥 热门推荐</h3>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm rounded-pill"><i class="bi bi-x-lg me-1"></i>清除筛选</a>
         {% endif %}
     </div>
-    {% if search_query %}
-    <div class="col-auto">
-        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">清除搜索</a>
-    </div>
-    {% endif %}
-</div>
 
-<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
-    {% for item in products %}
-    {% set product = item.product %}
-    {% set min_price = item.min_price %}
-    <div class="col">
-        <div class="card h-100 shadow-sm border-0 product-card">
-            <div class="position-relative overflow-hidden" style="height: 200px;">
-                {% if product.image_url %}
-                    <img src="{{ product.image_url }}" class="card-img-top h-100 w-100" style="object-fit: cover;" alt="{{ product.name }}"
-                         onerror="this.src='https://via.placeholder.com/300x200?text=暂无图片'">
-                {% else %}
-                    <div class="bg-light h-100 w-100 d-flex align-items-center justify-content-center text-secondary">
-                        <div class="text-center">
-                            <div class="fs-1">🍅</div>
-                            <small>暂无图片</small>
-                        </div>
+    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-4">
+        {% for item in products %}
+        {% set product = item.product %}
+        {% set min_price = item.min_price %}
+        <div class="col">
+            <div class="card h-100 shadow-sm border-0 product-card">
+                <div class="position-relative overflow-hidden card-img-wrapper">
+                    <a href="{{ url_for('product_detail', product_id=product.product_id) }}">
+                        {% if product.image_url %}
+                            <img src="{{ product.image_url }}" class="card-img-top" alt="{{ product.name }}"
+                                 onerror="this.src='https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&q=80&w=400&h=300'">
+                        {% else %}
+                            <div class="bg-light d-flex align-items-center justify-content-center text-secondary no-img-placeholder">
+                                <div class="text-center">
+                                    <i class="bi bi-camera fs-1 mb-2"></i>
+                                    <div class="small">暂无图片</div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </a>
+                    <span class="position-absolute top-0 start-0 badge bg-success m-2 shadow-sm rounded-pill">
+                        {{ product.category }}
+                    </span>
+                    <div class="position-absolute bottom-0 start-0 w-100 p-2 text-white origin-gradient">
+                        <small><i class="bi bi-geo-alt-fill text-warning me-1"></i>{{ product.origin }}</small>
                     </div>
-                {% endif %}
-                <span class="position-absolute top-0 end-0 badge bg-warning text-dark m-2 shadow-sm">
-                    {{ product.category }}
-                </span>
-            </div>
+                </div>
 
-            <div class="card-body d-flex flex-column">
-                <h5 class="card-title text-truncate fw-bold" title="{{ product.name }}">{{ product.name }}</h5>
-                <p class="card-text small text-muted mb-2">
-                    <i class="bi bi-geo-alt-fill text-success"></i> 产地：{{ product.origin }}
-                </p>
+                <div class="card-body d-flex flex-column pt-3">
+                    <h5 class="card-title fw-bold text-dark mb-1">
+                        <a href="{{ url_for('product_detail', product_id=product.product_id) }}" class="text-decoration-none text-dark stretched-link">
+                            {{ product.name }}
+                        </a>
+                    </h5>
 
-                <div class="mt-auto d-flex justify-content-between align-items-end">
-                    <div>
-                        <small class="text-muted">起售价</small>
-                        <div class="text-danger fw-bold fs-5">
+                    <div class="mt-auto d-flex align-items-center justify-content-between">
+                        <div class="price-tag">
                             {% if min_price > 0 %}
-                                ￥{{ min_price | round(2) }}
+                                {% set price_parts = ("%.2f"|format(min_price)).split('.') %}
+                                <small class="text-danger fw-bold">￥</small>
+                                <span class="text-danger fw-bold fs-4">{{ price_parts[0] }}</span>
+                                <small class="text-danger">.{{ price_parts[1] }}</small>
+                                <span class="text-muted small">起</span>
                             {% else %}
-                                暂无价格
+                                <span class="text-muted">暂无价格</span>
                             {% endif %}
                         </div>
+                        <div class="action-icon">
+                            <i class="bi bi-arrow-right-circle-fill text-success fs-3"></i>
+                        </div>
                     </div>
-                    <a href="{{ url_for('product_detail', product_id=product.product_id) }}" class="btn btn-outline-success btn-sm stretched-link">
-                        查看详情
-                    </a>
                 </div>
             </div>
         </div>
-    </div>
-    {% else %}
-    <div class="col-12 py-5 text-center">
-        <div class="mb-3 display-1 text-muted">🍃</div>
-        <h4 class="text-muted">暂无相关农产品</h4>
-        <p class="text-secondary">
-            {% if search_query %}
-                换个关键词试试看？
-            {% else %}
-                系统刚刚上线，农户正在努力上架中...
+        {% else %}
+        <div class="col-12 py-5 text-center">
+            <div class="mb-4 text-muted opacity-50">
+                <i class="bi bi-basket display-1"></i>
+            </div>
+            <h4 class="fw-bold text-muted">暂无相关农产品</h4>
+            <p class="text-secondary mb-4">
+                {% if search_query %}
+                    抱歉，没有找到与 "{{ search_query }}" 相关的商品。<br>建议您缩短关键词或更换搜索词。
+                {% else %}
+                    系统刚刚上线，农户正在努力上架中...
+                {% endif %}
+            </p>
+            {% if not search_query %}
+                <a href="{{ url_for('publish_product') }}" class="btn btn-success btn-lg rounded-pill px-5 shadow-sm">
+                    <i class="bi bi-plus-lg me-2"></i>我是农户，我要发布
+                </a>
             {% endif %}
-        </p>
-        {% if not search_query %}
-            <a href="{{ url_for('publish_product') }}" class="btn btn-success mt-3">我是农户，我要发布</a>
-        {% endif %}
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 </div>
 
 <style>
-    .product-card {
-        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    /* Hero Banner 背景设置 */
+    .hero-banner {
+        background-image: url('https://images.unsplash.com/photo-1500937386664-56d1dfef3854?ixlib=rb-1.2.1&auto=format&fit=crop&w=1920&q=80');
+        background-size: cover;
+        background-position: center;
+        min-height: 400px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
+
+    .hero-bg-overlay {
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: linear-gradient(to bottom, rgba(27, 67, 50, 0.75), rgba(45, 106, 79, 0.45));
+        z-index: 0;
+    }
+
+    /* 商品卡片悬浮特效 */
+    .product-card {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        border: 1px solid rgba(0,0,0,0.05) !important;
+    }
+
     .product-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important;
+        transform: translateY(-8px);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important;
+    }
+
+    .card-img-wrapper {
+        height: 220px;
+        background-color: #f8f9fa;
+    }
+
+    .card-img-top {
+        height: 100%;
+        width: 100%;
+        object-fit: cover;
+        transition: transform 0.5s ease;
+    }
+
+    .product-card:hover .card-img-top {
+        transform: scale(1.08); /* 图片微放大 */
+    }
+
+    .origin-gradient {
+        background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+    }
+
+    .no-img-placeholder {
+        height: 100%;
+        width: 100%;
+    }
+
+    .action-icon {
+        transition: transform 0.2s;
+    }
+
+    .product-card:hover .action-icon {
+        transform: translateX(3px);
+    }
+
+    /* 热门标签悬浮放大 */
+    .hover-scale {
+        transition: transform 0.2s;
+        display: inline-block;
+    }
+    .hover-scale:hover {
+        transform: scale(1.1);
+        background-color: rgba(255,255,255,0.4) !important;
     }
 </style>
 {% endblock %}

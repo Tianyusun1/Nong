@@ -1,44 +1,115 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-5">
-        <div class="card shadow mt-4">
-            <div class="card-header bg-success text-white">
-                <h4 class="mb-0">用户注册</h4>
-            </div>
-            <div class="card-body">
+<div class="row justify-content-center align-items-center" style="min-height: 75vh;">
+    <div class="col-md-6 col-lg-5">
+
+        <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+            <div class="card-body p-4 p-md-5">
+                <!-- 头部 Logo 与标题 -->
+                <div class="text-center mb-4">
+                    <div class="bg-success bg-opacity-10 text-success rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 64px; height: 64px;">
+                        <i class="bi bi-person-plus-fill fs-2"></i>
+                    </div>
+                    <h4 class="fw-bold text-dark">创建新账号</h4>
+                    <p class="text-muted small mb-0">加入智慧助农，开启您的助农之旅</p>
+                </div>
+
                 <form method="POST" action="{{ url_for('register') }}">
                     <div class="mb-3">
-                        <label class="form-label">用户名</label>
-                        <input type="text" name="username" class="form-control" required placeholder="请输入用户名">
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">密码</label>
-                        <input type="password" name="password" class="form-control" required placeholder="请输入密码">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">选择身份</label>
-                        <select name="role" class="form-select">
-                            <option value="0">我是消费者 (购买助农产品)</option>
-                            <option value="1">我是农户 (入驻销售产品)</option>
-                        </select>
-                        <div class="form-text text-muted">
-                            <small>注：农户账号注册后，需通过管理员审核才能发布商品。</small>
+                        <label class="form-label text-muted small fw-bold ms-1">用户名</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-end-0 text-muted rounded-start-pill ps-3"><i class="bi bi-person"></i></span>
+                            <input type="text" name="username" class="form-control bg-light border-start-0 rounded-end-pill py-2" placeholder="请输入用户名" required>
                         </div>
                     </div>
 
-                    <div class="d-grid gap-2">
-                        <button type="submit" class="btn btn-success">立即注册</button>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-bold ms-1">密码</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-end-0 text-muted rounded-start-pill ps-3"><i class="bi bi-lock"></i></span>
+                            <input type="password" name="password" class="form-control bg-light border-start-0 rounded-end-pill py-2" placeholder="请输入密码" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold ms-1">选择身份</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-end-0 text-muted rounded-start-pill ps-3"><i class="bi bi-person-badge"></i></span>
+                            <select name="role" class="form-select bg-light border-start-0 rounded-end-pill py-2 cursor-pointer" id="roleSelect">
+                                <option value="0">我是消费者 (购买助农产品)</option>
+                                <option value="1">我是农户 (入驻销售产品)</option>
+                            </select>
+                        </div>
+                        <!-- 动态提示区域 -->
+                        <div class="alert alert-warning bg-warning bg-opacity-10 border-0 rounded-3 mt-3 d-flex align-items-start d-none" id="farmerTip">
+                            <i class="bi bi-info-circle-fill text-warning me-2 mt-1"></i>
+                            <small class="text-dark opacity-75">注意：农户账号注册后，需通过管理员审核才能发布商品。</small>
+                        </div>
+                    </div>
+
+                    <div class="d-grid mb-3">
+                        <button type="submit" class="btn btn-success rounded-pill py-2 fw-bold shadow-sm hover-lift">
+                            立即注册 <i class="bi bi-arrow-right-short fs-5 align-middle"></i>
+                        </button>
                     </div>
                 </form>
-            </div>
-            <div class="card-footer text-center bg-light">
-                <small>已有账号? <a href="{{ url_for('login') }}" class="text-success">去登录</a></small>
+
+                <div class="text-center mt-4 pt-3 border-top">
+                    <small class="text-muted">已有账号?</small>
+                    <a href="{{ url_for('login') }}" class="text-success text-decoration-none fw-bold ms-1">去登录</a>
+                </div>
             </div>
         </div>
+
     </div>
 </div>
+
+<script>
+    // 简单的交互：当选择农户时显示提示
+    document.addEventListener('DOMContentLoaded', function() {
+        const roleSelect = document.getElementById('roleSelect');
+        const farmerTip = document.getElementById('farmerTip');
+
+        function toggleTip() {
+            if (roleSelect.value === '1') {
+                farmerTip.classList.remove('d-none');
+            } else {
+                farmerTip.classList.add('d-none');
+            }
+        }
+
+        roleSelect.addEventListener('change', toggleTip);
+        // 初始化检查
+        toggleTip();
+    });
+</script>
+
+<style>
+    .hover-lift {
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .hover-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(25, 135, 84, 0.3) !important;
+    }
+    .form-control:focus, .form-select:focus {
+        background-color: #fff !important;
+        border-color: #a3cfbb;
+        box-shadow: none;
+    }
+    .input-group:focus-within {
+        box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.15);
+        border-radius: 50rem;
+    }
+    .input-group:focus-within .input-group-text,
+    .input-group:focus-within .form-control,
+    .input-group:focus-within .form-select {
+        background-color: #fff !important;
+        border-color: #a3cfbb;
+    }
+    .cursor-pointer {
+        cursor: pointer;
+    }
+</style>
 {% endblock %}

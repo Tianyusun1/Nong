@@ -3,151 +3,222 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-10">
-        <h3 class="fw-bold mb-4 text-success">📋 订单详情 #{{ order.order_id }}</h3>
-
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
-                <span>订单状态: <span class="badge 
-                    {% if order.status == 1 %}bg-danger
-                    {% elif order.status == 2 %}bg-warning text-dark
-                    {% elif order.status == 3 %}bg-primary
-                    {% elif order.status == 4 %}bg-success
-                    {% elif order.status == 6 %}bg-danger
-                    {% else %}bg-secondary{% endif %}">
-                    {{ status_map[order.status] }}
-                </span></span>
-                <span>下单时间: {{ order.order_date.strftime('%Y-%m-%d %H:%M') }}</span>
+        <!-- 页面头部 -->
+        <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center">
+                <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                    <i class="bi bi-receipt fs-4"></i>
+                </div>
+                <div>
+                    <h3 class="fw-bold text-dark mb-0">订单详情</h3>
+                    <small class="text-muted">订单号 #{{ order.order_id }}</small>
+                </div>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="fw-bold text-muted">收货信息</h6>
-                        <p class="mb-1">收货人: {{ order.receiver_name }}</p>
-                        <p class="mb-1">电话: {{ order.receiver_phone }}</p>
-                        <p class="mb-0">地址: {{ order.address }}</p>
+            <a href="{{ url_for('orders') }}" class="btn btn-outline-secondary rounded-pill px-3 shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i> 返回我的订单
+            </a>
+        </div>
 
-                        {% if order.tracking_number %}
-                        <p class="mt-2 mb-0 text-success fw-bold">发货单号: {{ order.tracking_number }}</p>
-                        {% endif %}
+        <!-- 1. 订单状态与核心信息卡片 -->
+        <div class="card shadow-sm border-0 rounded-4 mb-4 overflow-hidden">
+            <div class="card-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center">
+                    <span class="badge rounded-pill px-3 py-2 me-3 fs-6
+                        {% if order.status == 1 %}bg-danger
+                        {% elif order.status == 2 %}bg-warning text-dark
+                        {% elif order.status == 3 %}bg-primary
+                        {% elif order.status == 4 %}bg-success
+                        {% elif order.status == 6 %}bg-danger
+                        {% else %}bg-secondary{% endif %}">
+                        {{ status_map[order.status] }}
+                    </span>
+                    <span class="text-muted small"><i class="bi bi-clock me-1"></i>下单时间: {{ order.order_date.strftime('%Y-%m-%d %H:%M') }}</span>
+                </div>
 
-                        {% if order.after_sales_reason %}
-                        <p class="mt-2 mb-0 text-danger fw-bold">售后原因: {{ order.after_sales_reason }}</p>
+                <!-- 咨询商家按钮 -->
+                <form method="POST" action="{{ url_for('consult_order', order_id=order.order_id) }}">
+                    <button type="submit" class="btn btn-sm btn-info text-white rounded-pill px-3 fw-bold shadow-sm">
+                        <i class="bi bi-chat-dots-fill me-1"></i> 咨询商家
+                    </button>
+                </form>
+            </div>
+
+            <div class="card-body p-4">
+                <div class="row g-4">
+                    <!-- 收货信息 -->
+                    <div class="col-md-6 border-end-md">
+                        <h6 class="fw-bold text-dark mb-3"><i class="bi bi-geo-alt text-success me-2"></i>收货信息</h6>
+                        <div class="ps-4 border-start border-3 border-light">
+                            <p class="mb-1 fw-bold text-dark">{{ order.receiver_name }} <span class="text-muted fw-normal ms-2">{{ order.receiver_phone }}</span></p>
+                            <p class="mb-2 text-secondary">{{ order.address }}</p>
+
+                            {% if order.tracking_number %}
+                                <div class="alert alert-success bg-success bg-opacity-10 border-0 p-2 mt-3 mb-0 d-inline-block">
+                                    <i class="bi bi-truck me-1"></i> 发货单号: <span class="fw-bold">{{ order.tracking_number }}</span>
+                                </div>
+                            {% endif %}
+
+                            {% if order.after_sales_reason %}
+                                <div class="alert alert-danger bg-danger bg-opacity-10 border-0 p-2 mt-3 mb-0">
+                                    <i class="bi bi-exclamation-circle me-1"></i> <strong>售后原因:</strong> {{ order.after_sales_reason }}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        {% if order.status == 1 or order.status == 2 %}
+                        <div class="mt-3 ps-4">
+                            <a href="{{ url_for('edit_order_address', order_id=order.order_id) }}" class="btn btn-outline-secondary btn-sm rounded-pill">
+                                <i class="bi bi-pencil me-1"></i>修改收货地址
+                            </a>
+                        </div>
                         {% endif %}
                     </div>
-                    <div class="col-md-6 text-end">
-                        <h6 class="fw-bold text-muted">费用明细</h6>
-                        {% set goods_total = order.total_amount - order.shipping_cost %}
-                        <p class="mb-1">商品总额: ￥{{ goods_total|round(2) }}</p>
-                        <p class="mb-1 text-success">运费: + ￥{{ order.shipping_cost|round(2) }}</p>
-                        <h4 class="fw-bold text-danger mt-2">订单总额: ￥{{ order.total_amount|round(2) }}</h4>
+
+                    <!-- 费用明细 -->
+                    <div class="col-md-6">
+                        <div class="ps-md-4">
+                            <h6 class="fw-bold text-dark mb-3"><i class="bi bi-wallet2 text-success me-2"></i>费用明细</h6>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between align-items-center border-0 px-0 py-1">
+                                    <span class="text-muted">商品总额</span>
+                                    <span>￥{{ (order.total_amount - order.shipping_cost)|round(2) }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center border-0 px-0 py-1">
+                                    <span class="text-muted">运费</span>
+                                    <span class="text-success">+ ￥{{ order.shipping_cost|round(2) }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center border-0 px-0 pt-3 mt-2 border-top">
+                                    <span class="fw-bold fs-5">实付款</span>
+                                    <span class="fw-bold text-danger fs-4">￥{{ order.total_amount|round(2) }}</span>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="card-footer bg-light text-end">
+
+            <!-- 底部操作栏 -->
+            {% if order.status == 3 or order.status == 4 %}
+            <div class="card-footer bg-light py-3 px-4 d-flex justify-content-end align-items-center gap-2">
                 {% if order.status == 3 %}
+                <span class="text-muted small me-2">收到商品后请点击确认收货</span>
                 <form method="POST" action="{{ url_for('confirm_receipt', order_id=order.order_id) }}" class="d-inline">
-                    <button type="submit" class="btn btn-primary fw-bold"
+                    <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold shadow-sm"
                             onclick="return confirm('确认收货订单 #{{ order.order_id }} 吗？')">
-                        确认收货
+                        <i class="bi bi-check-lg me-1"></i>确认收货
                     </button>
                 </form>
                 {% elif order.status == 4 %}
-                <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#afterSalesModal">
-                    申请售后
-                </button>
+                    <button type="button" class="btn btn-outline-danger rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#afterSalesModal">
+                        申请售后
+                    </button>
 
-                {% if not has_reviewed %}
-                <button type="button" class="btn btn-warning ms-1 fw-bold" data-bs-toggle="modal" data-bs-target="#reviewModal">
-                    ✨ 写评价
-                </button>
-                {% else %}
-                <button type="button" class="btn btn-outline-warning ms-1" disabled>
-                    已评价
-                </button>
-                {% endif %}
-                {% endif %}
-
-                {% if order.status == 1 or order.status == 2 %}
-                <a href="{{ url_for('edit_order_address', order_id=order.order_id) }}" class="btn btn-outline-secondary ms-1">
-                    修改收货地址
-                </a>
+                    {% if not has_reviewed %}
+                    <button type="button" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm" data-bs-toggle="modal" data-bs-target="#reviewModal">
+                        <i class="bi bi-star-fill me-1"></i> 写评价
+                    </button>
+                    {% else %}
+                    <button type="button" class="btn btn-secondary rounded-pill px-4 disabled" disabled>
+                        <i class="bi bi-check-all me-1"></i> 已评价
+                    </button>
+                    {% endif %}
                 {% endif %}
             </div>
+            {% endif %}
         </div>
 
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-light fw-bold">订单商品详情</div>
+        <!-- 2. 商品清单卡片 -->
+        <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+            <div class="card-header bg-white border-bottom py-3 px-4">
+                <h6 class="mb-0 fw-bold text-dark"><i class="bi bi-bag-check me-2 text-success"></i>商品清单</h6>
+            </div>
             <div class="card-body p-0">
-                <table class="table table-hover mb-0">
-                    <thead class="table-borderless">
-                        <tr>
-                            <th style="width: 50%;">商品名称 / 规格</th>
-                            <th style="width: 15%;">单价</th>
-                            <th style="width: 15%;">数量</th>
-                            <th style="width: 20%;">小计</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in order.items %}
-                        <tr>
-                            <td>
-                                <a href="{{ url_for('product_detail', product_id=item.product_id) }}" class="text-dark text-decoration-none">
-                                    {{ item.product_name }}
-                                    <div class="small text-success fw-bold">规格: {{ item.sku.spec_name }}</div>
-                                    <div class="small text-muted">农户ID: {{ item.farmer_id }}</div>
-                                </a>
-                            </td>
-                            <td>￥{{ item.price }}</td>
-                            <td>{{ item.quantity }}</td>
-                            <td><span class="text-danger fw-bold">￥{{ (item.price * item.quantity)|round(2) }}</span></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light text-secondary small">
+                            <tr>
+                                <th class="ps-4 py-3" style="width: 45%;">商品信息</th>
+                                <th style="width: 15%;">单价</th>
+                                <th style="width: 15%;">数量</th>
+                                <th class="text-end pe-4" style="width: 25%;">小计</th>
+                            </tr>
+                        </thead>
+                        <tbody class="border-top-0">
+                            {% for item in order.items %}
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center py-2">
+                                        <div class="bg-light rounded p-2 me-3 text-success">
+                                            <i class="bi bi-box-seam fs-4"></i>
+                                        </div>
+                                        <div>
+                                            <a href="{{ url_for('product_detail', product_id=item.product_id) }}" class="text-dark fw-bold text-decoration-none d-block">
+                                                {{ item.product_name }}
+                                            </a>
+                                            <small class="text-muted d-block">规格: {{ item.sku.spec_name }}</small>
+                                            <small class="text-success"><i class="bi bi-shop me-1"></i>农户ID: {{ item.farmer_id }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>￥{{ item.price }}</td>
+                                <td><span class="badge bg-light text-dark border px-2">x {{ item.quantity }}</span></td>
+                                <td class="text-end pe-4">
+                                    <span class="text-danger fw-bold">￥{{ (item.price * item.quantity)|round(2) }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
-
-        <a href="{{ url_for('orders') }}" class="btn btn-outline-secondary">返回我的订单</a>
     </div>
 </div>
 
-<div class="modal fade" id="afterSalesModal" tabindex="-1" aria-labelledby="afterSalesModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
+<!-- 售后申请模态框 -->
+<div class="modal fade" id="afterSalesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
             <form method="POST" action="{{ url_for('apply_for_after_sales', order_id=order.order_id) }}">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="afterSalesModalLabel">申请售后服务</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <div class="modal-header bg-danger text-white border-bottom-0">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle me-2"></i>申请售后服务</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <p>您正在对订单 <strong>#{{ order.order_id }}</strong> 申请售后，请填写具体原因。</p>
+                <div class="modal-body p-4">
+                    <div class="alert alert-light border mb-3">
+                        <i class="bi bi-info-circle-fill text-danger me-2"></i>
+                        您正在对订单 <strong>#{{ order.order_id }}</strong> 申请售后，请详细填写原因以便农户快速处理。
+                    </div>
                     <div class="mb-3">
-                        <label for="after_sales_reason" class="form-label">售后原因:</label>
-                        <textarea class="form-control" id="after_sales_reason" name="after_sales_reason" rows="4" required></textarea>
+                        <label for="after_sales_reason" class="form-label fw-bold">售后原因说明 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="after_sales_reason" name="after_sales_reason" rows="4" required placeholder="请描述商品问题、退换货理由等..."></textarea>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-danger">提交售后申请</button>
+                <div class="modal-footer border-top-0 pt-0 pb-4 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm">提交申请</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<div class="modal fade" id="reviewModal" tabindex="-1" aria-labelledby="reviewModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
+<!-- 评价模态框 -->
+<div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
             <form method="POST" action="{{ url_for('submit_review', order_id=order.order_id) }}">
-                <div class="modal-header bg-warning text-dark">
-                    <h5 class="modal-title" id="reviewModalLabel">对订单 #{{ order.order_id }} 进行评价</h5>
+                <div class="modal-header bg-warning text-dark border-bottom-0">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-star-half me-2"></i>评价订单 #{{ order.order_id }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <p>您的评价将用于改善农产品的质量和体验。</p>
-                    <div class="mb-3">
-                        <label for="rating" class="form-label fw-bold">星级评分 (1-5星)</label>
-                        <select name="rating" id="rating" class="form-select" required>
+                <div class="modal-body p-4">
+                    <div class="text-center mb-4">
+                        <p class="text-muted small">您的评价将帮助我们和其他用户</p>
+                    </div>
+                    <div class="mb-4">
+                        <label for="rating" class="form-label fw-bold">总体评分</label>
+                        <select name="rating" id="rating" class="form-select border-warning" required>
                             <option value="5">⭐⭐⭐⭐⭐ 5星 (非常好)</option>
                             <option value="4">⭐⭐⭐⭐ 4星 (好)</option>
                             <option value="3">⭐⭐⭐ 3星 (一般)</option>
@@ -156,16 +227,25 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="content" class="form-label fw-bold">评价内容 (可选)</label>
-                        <textarea class="form-control" id="content" name="content" rows="3" placeholder="写下您的宝贵意见..."></textarea>
+                        <label for="content" class="form-label fw-bold">详细评价 (可选)</label>
+                        <textarea class="form-control" id="content" name="content" rows="3" placeholder="分享您的购买心得，商品的质量如何？"></textarea>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="submit" class="btn btn-warning fw-bold">提交评价</button>
+                <div class="modal-footer border-top-0 pt-0 pb-4 px-4">
+                    <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-warning rounded-pill px-4 fw-bold shadow-sm">提交评价</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+<style>
+    /* 简单的分割线样式 */
+    @media (min-width: 768px) {
+        .border-end-md {
+            border-right: 1px solid #dee2e6;
+        }
+    }
+</style>
 {% endblock %}

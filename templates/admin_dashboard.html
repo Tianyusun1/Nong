@@ -1,47 +1,84 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center">
-            <h3>🛡️ 管理员审核后台</h3>
-            <a href="{{ url_for('train_model') }}" class="btn btn-warning btn-sm fw-bold"
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+            <div>
+                <h3 class="fw-bold text-dark mb-1">🛡️ 管理员审核后台</h3>
+                <p class="text-muted small mb-0">管理平台用户审核与推荐系统维护</p>
+            </div>
+
+            <a href="{{ url_for('train_model') }}"
+               class="btn btn-warning text-dark fw-bold shadow-sm rounded-pill px-4"
                onclick="return confirm('警告：训练模型需要较长时间，并会清空旧的相似度数据。确定要开始训练吗？')">
-                🚀 手动训练推荐模型
+                <i class="bi bi-cpu-fill me-1"></i> 手动训练推荐模型
             </a>
         </div>
 
-        <hr>
-        <h5 class="mb-3">待审核农户列表</h5>
-        
-        {% if farmers %}
-        <table class="table table-striped table-hover">
-            <thead class="table-dark">
-                <tr>
-                    <th>ID</th>
-                    <th>用户名</th>
-                    <th>注册角色</th>
-                    <th>当前状态</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for farmer in farmers %}
-                <tr>
-                    <td>{{ farmer.user_id }}</td>
-                    <td>{{ farmer.username }}</td>
-                    <td>农户</td>
-                    <td><span class="badge bg-warning text-dark">待审核</span></td>
-                    <td>
-                        <a href="{{ url_for('approve_farmer', user_id=farmer.user_id) }}" class="btn btn-success btn-sm">✅ 通过审核</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-            <div class="alert alert-success">🎉 目前没有待审核的农户申请。</div>
-        {% endif %}
+        <div class="card shadow-sm border-0 overflow-hidden rounded-3">
+            <div class="card-header bg-white py-3 border-bottom border-light d-flex align-items-center px-4">
+                <div class="bg-success bg-opacity-10 text-success rounded p-1 me-2 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                    <i class="bi bi-person-lines-fill"></i>
+                </div>
+                <h5 class="mb-0 fw-bold text-dark">待审核农户列表</h5>
+            </div>
+
+            <div class="card-body p-0">
+                {% if farmers %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light text-secondary small text-uppercase fw-bold">
+                            <tr>
+                                <th class="ps-4 py-3" style="width: 10%;">ID</th>
+                                <th style="width: 25%;">用户名</th>
+                                <th style="width: 15%;">注册角色</th>
+                                <th style="width: 20%;">当前状态</th>
+                                <th class="text-end pe-4" style="width: 30%;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody class="border-top-0">
+                            {% for farmer in farmers %}
+                            <tr>
+                                <td class="ps-4 fw-bold text-muted">#{{ farmer.user_id }}</td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-light rounded-circle p-2 me-2 text-secondary d-flex justify-content-center align-items-center" style="width: 40px; height: 40px;">
+                                            <i class="bi bi-person-fill fs-5"></i>
+                                        </div>
+                                        <span class="fw-bold text-dark">{{ farmer.username }}</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border fw-normal">农户</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-warning bg-opacity-10 text-dark border border-warning rounded-pill px-3 py-2">
+                                        <i class="bi bi-hourglass-split text-warning me-1"></i>待审核
+                                    </span>
+                                </td>
+                                <td class="text-end pe-4">
+                                    <a href="{{ url_for('approve_farmer', user_id=farmer.user_id) }}"
+                                       class="btn btn-success btn-sm rounded-pill px-4 shadow-sm fw-bold">
+                                        <i class="bi bi-check-lg me-1"></i> 通过审核
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-5 my-4">
+                    <div class="mb-3 text-success opacity-25">
+                        <i class="bi bi-clipboard-check display-1"></i>
+                    </div>
+                    <h5 class="text-muted fw-normal">目前没有待审核的农户申请</h5>
+                    <p class="text-secondary small mb-0">所有的注册请求都已处理完毕，请稍后再来。</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

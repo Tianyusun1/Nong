@@ -1,66 +1,104 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <div class="card shadow-sm">
-            <div class="card-header bg-success text-white">
-                <h5 class="mb-0">✍️ 发布新话题</h5>
+<div class="row justify-content-center align-items-center" style="min-height: 80vh;">
+    <div class="col-lg-8 col-xl-7">
+        <!-- 页面头部 -->
+        <div class="d-flex align-items-center mb-4">
+            <div class="bg-success bg-opacity-10 text-success rounded-circle d-flex align-items-center justify-content-center me-3" style="width: 48px; height: 48px;">
+                <i class="bi bi-pencil-square fs-4"></i>
             </div>
-            <div class="card-body">
+            <div>
+                <h3 class="fw-bold text-dark mb-0">发布新话题</h3>
+                <small class="text-muted">分享您的乡村生活见闻与经验</small>
+            </div>
+        </div>
+
+        <div class="card shadow-lg border-0 rounded-4 overflow-hidden">
+            <!-- 顶部装饰条 -->
+            <div class="card-header bg-success py-2"></div>
+
+            <div class="card-body p-4 p-lg-5">
                 <!-- 关键修改：添加 enctype="multipart/form-data" 属性以支持文件上传 -->
                 <form method="POST" enctype="multipart/form-data">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">帖子标题</label>
-                        <input type="text" name="title" class="form-control" placeholder="请输入标题" required>
+
+                    <!-- 1. 标题与内容 -->
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold">帖子标题</label>
+                        <input type="text" name="title" class="form-control bg-light border-0 py-2 px-3 fw-bold" placeholder="请输入标题" required>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">内容详情</label>
-                        <textarea name="content" class="form-control" rows="6" placeholder="分享您的乡村生活..." required></textarea>
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold">内容详情</label>
+                        <textarea name="content" class="form-control bg-light border-0 px-3 py-3" rows="8" placeholder="分享您的乡村生活、种植经验或产品背后的故事..." required></textarea>
                     </div>
 
-                    <!-- 新增：图片上传字段 -->
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">帖子配图 (可选)</label>
-                        <div class="input-group">
-                            <input type="file" name="image_file" class="form-control" accept="image/*">
+                    <!-- 2. 图片上传 -->
+                    <div class="mb-4">
+                        <label class="form-label text-muted small fw-bold">帖子配图 (可选)</label>
+                        <div class="p-3 bg-light rounded-3 border border-light">
+                            <label for="imageUpload" class="btn btn-outline-secondary w-100 mb-2 text-start">
+                                <i class="bi bi-image me-2"></i>点击上传图片 (支持 jpg, png, gif)
+                            </label>
+                            <input type="file" id="imageUpload" name="image_file" class="form-control d-none" accept="image/*" onchange="document.getElementById('fileName').textContent = this.files[0] ? this.files[0].name : ''">
+                            <div id="fileName" class="small text-success ps-1"></div>
                         </div>
-                        <div class="form-text text-muted">
-                            <small>上传图片将使您的帖子更吸引人。支持 jpg, png, gif 格式。</small>
-                        </div>
                     </div>
 
+                    <!-- 3. 关联商品 (仅当有商品时显示) -->
                     {% if my_products %}
-                    <div class="mb-4 p-3 bg-light rounded border">
-                        <label class="form-label fw-bold text-success">🍅 关联我的农产品 (可选)</label>
-                        <select name="product_id" class="form-select">
-                            <option value="none">-- 不关联任何商品 --</option>
-                            {% for product in my_products %}
+                    <div class="mb-5">
+                        <div class="card border border-success border-opacity-25 bg-success bg-opacity-10 rounded-3">
+                            <div class="card-body">
+                                <label class="form-label fw-bold text-success mb-2"><i class="bi bi-basket me-2"></i>关联我的农产品 (可选)</label>
+                                <select name="product_id" class="form-select border-success border-opacity-25">
+                                    <option value="none">-- 不关联任何商品 --</option>
+                                    {% for product in my_products %}
 
-                                {% set min_price = 0 %}
-                                {% if product.skus %}
-                                    {% set min_price = product.skus | map(attribute='price') | min %}
-                                {% endif %}
+                                        {% set min_price = 0 %}
+                                        {% if product.skus %}
+                                            {% set min_price = product.skus | map(attribute='price') | min %}
+                                        {% endif %}
 
-                                <option value="{{ product.product_id }}">
-                                    {{ product.name }} (￥{{ min_price | round(2) }} 起)
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text text-muted">
-                            选择后，帖子下方会显示该商品的购买卡片，方便买家直接下单。
+                                        <option value="{{ product.product_id }}">
+                                            {{ product.name }} (￥{{ min_price | round(2) }} 起)
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text text-muted mt-2 small">
+                                    <i class="bi bi-info-circle me-1"></i> 选择后，帖子下方会显示该商品的购买卡片，方便买家直接下单。
+                                </div>
+                            </div>
                         </div>
                     </div>
                     {% endif %}
 
-                    <div class="d-flex justify-content-end gap-2">
-                        <a href="{{ url_for('community') }}" class="btn btn-outline-secondary">取消</a>
-                        <button type="submit" class="btn btn-success px-4">🚀 立即发布</button>
+                    <div class="d-flex justify-content-end gap-3 pt-3 border-top">
+                        <a href="{{ url_for('community') }}" class="btn btn-light rounded-pill px-4 py-2 fw-bold text-secondary">
+                            取消
+                        </a>
+                        <button type="submit" class="btn btn-success rounded-pill px-5 py-2 fw-bold shadow-sm hover-lift">
+                            <i class="bi bi-send me-2"></i>立即发布
+                        </button>
                     </div>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+    .form-control:focus, .form-select:focus {
+        border-color: #198754;
+        box-shadow: 0 0 0 0.25rem rgba(25, 135, 84, 0.15);
+        background-color: #fff !important;
+    }
+    .hover-lift {
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .hover-lift:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(25, 135, 84, 0.3) !important;
+    }
+</style>
 {% endblock %}
