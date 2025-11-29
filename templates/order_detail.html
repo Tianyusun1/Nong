@@ -44,6 +44,15 @@
                 </div>
             </div>
             <div class="card-footer bg-light text-end">
+
+                {# FIX: 添加咨询商家按钮 #}
+                <form method="POST" action="{{ url_for('consult_order', order_id=order.order_id) }}" class="d-inline me-1">
+                    <button type="submit" class="btn btn-sm btn-info fw-bold">
+                        💬 咨询商家
+                    </button>
+                </form>
+                {# END FIX #}
+
                 {% if order.status == 3 %}
                 <form method="POST" action="{{ url_for('confirm_receipt', order_id=order.order_id) }}" class="d-inline">
                     <button type="submit" class="btn btn-primary fw-bold"

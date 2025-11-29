@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from functools import wraps  # <-- FIX: 引入 functools.wraps 用于装饰器
 
 from recommend import RecommenderEngine
 
@@ -27,6 +28,20 @@ socketio = SocketIO(app)
 # 🔥 修复：调整 RecommenderEngine 初始化时机和方式（假设 RecommenderEngine 类接受 Flask app 实例）
 # 这里暂时使用原版传入 app 的方式，并假设它在内部处理了依赖。
 recommender = RecommenderEngine(app)
+
+# ==========================================
+# FIX: 登录检查装饰器 (解决 NameError)
+# ==========================================
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('请先登录才能进行此操作。', 'error')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+# ==========================================
+
 
 # ==========================================
 # 辅助功能初始化
@@ -379,12 +394,10 @@ def community():
 
 
 @app.route('/community/delete/<int:post_id>', methods=['POST'])
+@login_required
 def delete_post(post_id):
     """删除社区帖子，仅限作者或管理员操作"""
-    if 'user_id' not in session:
-        flash('请先登录。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
     post = CommunityPost.query.get_or_404(post_id)
 
@@ -404,11 +417,10 @@ def delete_post(post_id):
 
 
 @app.route('/community/new', methods=['GET', 'POST'])
+@login_required
 def new_post():
     """发布新帖子 (支持关联商品和图片)"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if request.method == 'POST':
@@ -467,12 +479,10 @@ def new_post():
 # ==========================================
 
 @app.route('/cart')
+@login_required
 def view_cart():
     """查看购物车页面"""
-    if 'user_id' not in session:
-        flash('请先登录以查看购物车。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']  # <-- 获取 user_id
 
     # 优化：预加载 sku 及其 product 和 farmer
@@ -490,12 +500,10 @@ def view_cart():
 
 
 @app.route('/cart/add/<int:sku_id>', methods=['POST'])
+@login_required
 def add_to_cart(sku_id):
     """添加 SKU 到购物车"""
-    if 'user_id' not in session:
-        flash('请先登录才能添加商品到购物车。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']
     quantity = int(request.form.get('quantity', 1))
 
@@ -539,11 +547,10 @@ def add_to_cart(sku_id):
 
 
 @app.route('/cart/update', methods=['POST'])
+@login_required
 def update_cart():
     """更新购物车中商品的数量"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     cart_item_id = request.form.get('item_id', type=int)
     new_quantity = request.form.get('quantity', type=int)
 
@@ -567,11 +574,10 @@ def update_cart():
 
 
 @app.route('/cart/remove/<int:item_id>')
+@login_required
 def remove_from_cart(item_id):
     """从购物车移除单个商品"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     cart_item = CartItem.query.filter_by(id=item_id, user_id=session['user_id']).first()
 
     if cart_item:
@@ -587,11 +593,10 @@ def remove_from_cart(item_id):
 # ==========================================
 
 @app.route('/checkout', methods=['GET', 'POST'])
+@login_required
 def checkout():
     """结算页面：展示商品、运费和收货信息"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     # 默认查询所有项目 (用于 GET 访问)
@@ -646,11 +651,10 @@ def checkout():
 
 
 @app.route('/place_order', methods=['POST'])
+@login_required
 def place_order():
     """最终下单并记录购买行为 (type=4)"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     # 1. 获取收货信息和总额
@@ -786,8 +790,9 @@ def place_order():
 # ==========================================
 
 @app.route('/profile')
+@login_required
 def profile():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
     user_id = session['user_id']  # <-- 获取 user_id
 
@@ -830,8 +835,9 @@ def profile():
 
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
 def edit_profile():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if request.method == 'POST':
@@ -856,9 +862,10 @@ def edit_profile():
 
 
 @app.route('/product/publish', methods=['GET', 'POST'])
+@login_required
 def publish_product():
     """农户发布商品 (支持图片上传)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if not user or user.role != 1 or user.status != 1:
@@ -926,10 +933,10 @@ def publish_product():
 
 
 @app.route('/farmer/product/<int:product_id>/toggle_sale')
+@login_required
 def toggle_product_status(product_id):
     """切换商品的上架/下架状态"""
-    if 'user_id' not in session: return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     current_user = User.query.get(session['user_id'])
     product = Product.query.get_or_404(product_id)
 
@@ -947,9 +954,10 @@ def toggle_product_status(product_id):
 
 
 @app.route('/product/edit/<int:product_id>', methods=['GET', 'POST'])
+@login_required
 def edit_product(product_id):
     """农户修改已发布的商品信息和规格"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     # 预加载 SKU
@@ -1085,9 +1093,10 @@ def edit_product(product_id):
 
 
 @app.route('/product/delete/<int:product_id>', methods=['POST'])
+@login_required
 def delete_product(product_id):
     """农户删除商品及其所有关联数据"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     current_user = User.query.get(session['user_id'])
 
     # 查找商品，确保存在
@@ -1132,9 +1141,10 @@ def delete_product(product_id):
 
 
 @app.route('/order/<int:order_id>/review', methods=['POST'])
+@login_required
 def submit_review(order_id):
     """消费者：对已完成订单提交评价 (1-5星)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
@@ -1195,11 +1205,10 @@ def submit_review(order_id):
 # ----------------- 消费者订单管理 (Consumer Order Management) -----------------
 
 @app.route('/profile/orders')
+@login_required
 def orders():
     """消费者：查看自己的订单列表"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']  # <-- 获取 user_id
 
     # 预加载 items 及其 sku 和 product
@@ -1225,11 +1234,10 @@ def orders():
 
 
 @app.route('/order/<int:order_id>')
+@login_required
 def order_detail(order_id):
     """订单详情页：展示订单内的商品、收货信息等（支持消费者、农户、管理员查看）"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     current_user = User.query.get(session['user_id'])
 
     # 1. 查找特定订单
@@ -1276,9 +1284,10 @@ def order_detail(order_id):
 
 
 @app.route('/order/<int:order_id>/confirm_receipt', methods=['POST'])
+@login_required
 def confirm_receipt(order_id):
     """消费者：将订单状态从“待收货”(3)改为“已完成”(4)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
@@ -1305,12 +1314,13 @@ def confirm_receipt(order_id):
 
 
 @app.route('/order/<int:order_id>/edit_address', methods=['GET', 'POST'])
+@login_required
 def edit_order_address(order_id):
     """
     修改订单地址，仅限发货前（状态 1 或 2）
     权限逻辑：允许消费者和负责农户/管理员访问。
     """
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     current_user = User.query.get(session['user_id'])
 
     # 1. 查找订单
@@ -1375,9 +1385,10 @@ def edit_order_address(order_id):
 
 
 @app.route('/order/<int:order_id>/after_sales', methods=['POST'])
+@login_required
 def apply_for_after_sales(order_id):
     """消费者：将订单状态从“已完成”(4)改为“售后中”(6)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     order = Order.query.filter_by(order_id=order_id, user_id=user_id).first_or_404()
@@ -1402,15 +1413,91 @@ def apply_for_after_sales(order_id):
     return redirect(url_for('order_detail', order_id=order_id))
 
 
+# ==========================================
+# FIX: 新增订单咨询路由 (使用正确的会话逻辑)
+# ==========================================
+
+@app.route('/consult_order/<int:order_id>', methods=['POST'])
+@login_required
+def consult_order(order_id):
+    """
+    将订单摘要发送到与订单相关农户的聊天记录中，并重定向到会话页面。
+    """
+    # 装饰器已检查登录
+    user_id = session['user_id']
+    # 预加载 items 以便获取 farmer_id
+    order = Order.query.options(joinedload(Order.items)).get_or_404(order_id)
+
+    # 1. 权限检查：确保是订单的买家
+    if order.user_id != user_id:
+        flash('🚫 您无权发起此订单的咨询。', 'error')
+        return redirect(url_for('orders'))
+
+    # 2. 找到订单中涉及的第一个农户ID作为咨询目标
+    first_order_item = order.items[0] if order.items else None
+    if not first_order_item:
+        flash('❌ 订单中没有商品，无法咨询商家。', 'error')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+    target_farmer_id = first_order_item.farmer_id
+
+    # 3. 查找或创建会话
+    # 规范化参与者字符串：保证 ID 小的在前
+    id1, id2 = sorted([user_id, target_farmer_id])
+    participants_str = f"{id1},{id2}"
+
+    conversation = Conversation.query.filter_by(participants=participants_str).first()
+
+    try:
+        if not conversation:
+            # 创建新会话
+            conversation = Conversation(participants=participants_str)
+            db.session.add(conversation)
+            db.session.flush() # 立即获取 ID
+
+        # 4. 准备消息内容（订单摘要）
+        product_names = ' / '.join([item.product_name for item in order.items])
+        message_content = f"【订单咨询】订单号: #{order.order_id}，总额: ￥{order.total_amount:.2f}。购买商品: {product_names}。"
+
+        # 5. 创建并保存消息
+        new_message = Message(
+            conversation_id=conversation.id,
+            sender_id=user_id,
+            content=message_content,
+            timestamp=datetime.now()
+        )
+        db.session.add(new_message)
+
+        # 6. 更新会话的最后消息时间 (如果它是新消息)
+        conversation.last_message_date = datetime.now()
+
+        db.session.commit()
+
+        # 7. 重定向到聊天页面
+        farmer_username = User.query.get(target_farmer_id).username if User.query.get(target_farmer_id) else "商家"
+        flash(f'订单信息已自动发送给商家 {farmer_username}，请在聊天页面继续咨询。', 'success')
+        return redirect(url_for('chat_detail', conv_id=conversation.id))
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"咨询订单错误: {e}")
+        flash(f'❌ 无法发起咨询: {e}', 'error')
+        return redirect(url_for('order_detail', order_id=order_id))
+
+# ==========================================
+# 农户订单管理
+# ==========================================
+
 @app.route('/farmer/orders', defaults={'status_filter': 'pending'})
 @app.route('/farmer/orders/<status_filter>')
+@login_required
 def farmer_orders(status_filter):
     """
     农户：查看订单列表 (支持按状态过滤)
     status_filter: pending (待发货, status=2), shipped (已发货/待收货, status=3),
                    aftersales (售后中, status=6), completed (已完成/售后结束, status=4/7)
     """
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if not user or user.role != 1:
@@ -1471,9 +1558,10 @@ def farmer_orders(status_filter):
 
 
 @app.route('/farmer/order/<int:order_id>/ship', methods=['POST'])
+@login_required
 def ship_order(order_id):
     """农户：将订单状态从“待发货”(2)改为“待收货”(3)，接收发货单号"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if not user or user.role != 1:
@@ -1510,9 +1598,10 @@ def ship_order(order_id):
 
 
 @app.route('/farmer/order/<int:order_id>/handle_after_sales', methods=['POST'])
+@login_required
 def handle_after_sales(order_id):
     """农户：处理售后申请，将订单状态从“售后中”(6)改为“已退款/售后完成”(7)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if not user or user.role != 1:
@@ -1543,11 +1632,10 @@ def handle_after_sales(order_id):
 
 
 @app.route('/profile/favorites')
+@login_required
 def view_favorites():
     """查看我的收藏列表"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']  # <-- 获取 user_id
 
     # 1. 查询该用户所有 behavior_type=2 (收藏) 的日志
@@ -1584,8 +1672,9 @@ def view_favorites():
 
 
 @app.route('/admin/dashboard')
+@login_required
 def admin_dashboard():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
     if user.role != 2:
         flash('🚫 权限不足')
@@ -1596,8 +1685,9 @@ def admin_dashboard():
 
 
 @app.route('/admin/approve/<int:user_id>')
+@login_required
 def approve_farmer(user_id):
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     current_user = User.query.get(session['user_id'])
     if current_user.role != 2: return "无权操作", 403
 
@@ -1610,9 +1700,10 @@ def approve_farmer(user_id):
 
 
 @app.route('/admin/train_model')
+@login_required
 def train_model():
     """手动触发推荐算法的离线计算 (计算物品相似度)"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
     if not user or user.role != 2:
         return "无权操作", 403
@@ -1630,10 +1721,9 @@ def train_model():
 
 
 @app.route('/api/collect_behavior', methods=['POST'])
+@login_required
 def collect_behavior():
-    if 'user_id' not in session:
-        return jsonify({'status': 'error', 'message': '未登录'}), 401
-
+    # 装饰器已检查登录
     data = request.get_json()
     product_id = data.get('product_id')
     behavior_type = int(data.get('behavior_type'))
@@ -1683,9 +1773,10 @@ def collect_behavior():
 
 
 @app.route('/farmer/dashboard')
+@login_required
 def farmer_dashboard():
     """助农数据看板：核心业务统计"""
-    if 'user_id' not in session: return redirect(url_for('login'))
+    # 装饰器已检查登录
     user = User.query.get(session['user_id'])
 
     if not user or user.role != 1:
@@ -1800,12 +1891,10 @@ def logout():
 # ==========================================
 
 @app.route('/chat')
+@login_required
 def chat_list():
     """聊天列表页面：显示所有与当前用户相关的会话"""
-    if 'user_id' not in session:
-        flash('请先登录以查看消息。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']
 
     # 查找所有包含当前用户的会话，并按最后消息时间排序
@@ -1844,12 +1933,10 @@ def chat_list():
 
 
 @app.route('/chat/<int:conv_id>')
+@login_required
 def chat_detail(conv_id):
     """具体聊天窗口页面：显示历史消息"""
-    if 'user_id' not in session:
-        flash('请先登录。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     user_id = session['user_id']
     current_user = User.query.get(user_id)
     conversation = Conversation.query.get_or_404(conv_id)
@@ -1897,12 +1984,10 @@ def chat_detail(conv_id):
 
 
 @app.route('/start_chat/<int:target_user_id>', methods=['POST'])
+@login_required
 def start_chat(target_user_id):
     """从其他页面（如商品详情）跳转到聊天，并创建会话"""
-    if 'user_id' not in session:
-        flash('请先登录才能发起聊天。')
-        return redirect(url_for('login'))
-
+    # 装饰器已检查登录
     current_user_id = session['user_id']
 
     if current_user_id == target_user_id:
