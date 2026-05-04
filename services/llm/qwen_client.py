@@ -70,11 +70,14 @@ class QwenClient:
             except Exception as e:
                 print(f"⚠️ 本地模型推理失败，回退 HTTP 模式: {e}")
 
-        resp = requests.post(
-            self.base_url,
-            json={"prompt": prompt, "max_tokens": 512, "temperature": 0.2},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get('text') or data.get('answer') or ''
+        try:
+            resp = requests.post(
+                self.base_url,
+                json={"prompt": prompt, "max_tokens": 512, "temperature": 0.2},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get('text') or data.get('answer') or ''
+        except Exception as e:
+            return f"【智能客服降级】模型不可用，请检查 QWEN_MODEL_PATH/QWEN_API_URL。错误: {e}"
