@@ -1,4 +1,5 @@
 import os
+import re
 from decimal import Decimal
 
 from sqlalchemy import or_
@@ -25,20 +26,48 @@ def _build_product_cards(products, base_url):
 
 
 def _search_products(question, limit=5):
-    keywords = [k for k in question.strip().split() if k]
+    raw = (question or '').strip()
+    # 兼容中文自然语言：提取中文词片段 + 英文数字 token
+    tokens = re.findall(r'[一-鿿]{1,8}|[A-Za-z0-9_]+', raw)
+
+    # 同义词映射，提升命中率
+    synonym_map = {
+        '水果': ['水果', '苹果', '香蕉', '梨', '草莓', '蓝莓', '西瓜'],
+        '蔬菜': ['蔬菜', '白菜', '土豆', '玉米', '生菜', '胡萝卜', '菠菜'],
+        '肉类': ['肉', '牛肉', '猪肉', '羊肉', '鸡', '鹅', '鱼', '虾'],
+    }
+
+    expanded_tokens = []
+    for t in tokens:
+        expanded_tokens.append(t)
+        if t in synonym_map:
+            expanded_tokens.extend(synonym_map[t])
+
+    # 去重
+    seen = set()
+    keywords = []
+    for t in expanded_tokens:
+        t = t.strip()
+        if t and t not in seen:
+            seen.add(t)
+            keywords.append(t)
+
     query = Product.query.filter(Product.is_on_sale == True)
 
     if keywords:
         cond = []
-        for kw in keywords[:5]:
+        for kw in keywords[:12]:
             cond.extend([
                 Product.name.contains(kw),
                 Product.category.contains(kw),
                 Product.origin.contains(kw),
                 Product.description.contains(kw),
             ])
-        query = query.filter(or_(*cond))
+        result = query.filter(or_(*cond)).limit(limit).all()
+        if result:
+            return result
 
+    # 兜底：即使关键词没命中，也给出在售商品推荐，避免“无结果”体验
     return query.limit(limit).all()
 
 
