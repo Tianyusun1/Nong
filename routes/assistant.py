@@ -9,6 +9,7 @@ assistant_bp = Blueprint('assistant', __name__, url_prefix='/api/assistant')
 
 graph_client = GraphClient()
 qwen_client = QwenClient()
+qwen_client.warmup()
 
 
 @assistant_bp.route('/chat', methods=['POST'])
