@@ -5,6 +5,7 @@ from werkzeug.security import generate_password_hash
 from decimal import Decimal
 from sqlalchemy.exc import IntegrityError
 import random
+from datetime import datetime
 
 from services.kg.graph_client import GraphClient
 from services.kg.kg_builder import upsert_product
@@ -238,6 +239,10 @@ def add_products(farmer_id, product_list):
 
 def sync_farmer_products_to_kg(graph_client, farmer_id):
     """将某农户当前所有商品同步到知识图谱（含新增与历史数据）。"""
+    if not graph_client.enabled:
+        print(f"   ⚠️ KG 未启用，跳过同步: farmer_id={farmer_id}")
+        return
+
     products = Product.query.filter_by(farmer_id=farmer_id).all()
     success_count = 0
     for product in products:
@@ -257,7 +262,11 @@ def init_test_data():
         farmer2_id = create_farmer("farmer_veg", "123456", "绿色田园菜篮子", "河北张家口市万亩蔬菜基地", "王菜农")
         farmer3_id = create_farmer("farmer_meat", "123456", "内蒙草原牧场", "内蒙古呼伦贝尔大草原深处", "赵牧民")
 
+        if not os.getenv("KG_SOURCE_TAG"):
+            os.environ["KG_SOURCE_TAG"] = f"mall_assistant_{datetime.now().strftime('%Y%m%d')}"
+
         graph_client = GraphClient()
+        print(f"[KG] enabled={graph_client.enabled}, database={graph_client.database}, source_tag={os.getenv('KG_SOURCE_TAG')}")
 
         # 2. 批量添加商品
         if farmer1_id:
