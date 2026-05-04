@@ -1,8 +1,10 @@
 @echo off
-chcp 65001 >nul
 if not exist .env.local (
-  echo [提示] 未找到 .env.local，正在从 .env.local.example 复制...
+  echo [INFO] .env.local not found, copying from .env.local.example ...
   copy /Y .env.local.example .env.local >nul
 )
 python init_product.py
+if errorlevel 1 (
+  echo [WARN] init_product.py failed, continue to start app...
+)
 python app.py

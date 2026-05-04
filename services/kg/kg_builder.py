@@ -3,6 +3,9 @@ from models import Product, ProductSKU, ShippingTemplate
 
 
 def upsert_product(graph_client, product_id, merchant_id):
+    if not graph_client.enabled:
+        return False
+
     source_tag = os.getenv('KG_SOURCE_TAG', 'mall_assistant_v2')
     product = Product.query.get(product_id)
     if not product:

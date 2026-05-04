@@ -39,9 +39,14 @@ class GraphClient:
     def run(self, cypher, **params):
         if not self.enabled or self._driver is None:
             return []
-        with self._driver.session(database=self.database) as session:
-            result = session.run(cypher, **params)
-            return [r.data() for r in result]
+        try:
+            with self._driver.session(database=self.database) as session:
+                result = session.run(cypher, **params)
+                return [r.data() for r in result]
+        except Exception as e:
+            print(f"⚠️ Neo4j 连接异常，已跳过本次写入/查询: {e}")
+            self.enabled = False
+            return []
 
     def close(self):
         if self._driver:
