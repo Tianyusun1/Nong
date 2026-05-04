@@ -1,4 +1,9 @@
 import os
+from local_settings import load_local_env
+
+load_local_env()
+
+
 
 
 class Config:
