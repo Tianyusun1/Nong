@@ -4,7 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from config import Config
 from decimal import Decimal
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, create_engine, text
 from sqlalchemy.orm import joinedload  # <-- 引入 joinedload 用于优化查询
 from models import db, User, CommunityPost, FarmerInfo, Product, \
     BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem, ProductSKU, ShippingTemplate, \
@@ -64,11 +64,30 @@ def init_shipping_templates():
         print("✅ 默认运费模板已初始化 (ID 1, 2, 3)！")
 
 
+
+def ensure_database_exists():
+    """若数据库不存在则自动创建（MySQL）。"""
+    uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if not uri.startswith('mysql'):
+        return
+
+    try:
+        db_name = uri.rsplit('/', 1)[-1].split('?', 1)[0]
+        server_uri = uri.rsplit('/', 1)[0]
+        engine = create_engine(server_uri)
+        with engine.connect() as conn:
+            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
+            conn.commit()
+        print(f"✅ 数据库已确认存在: {db_name}")
+    except Exception as e:
+        print(f"❌ 自动创建数据库失败，请检查数据库账号权限: {e}")
+
 # ==========================================
 # 数据库初始化
 # ==========================================
 with app.app_context():
     try:
+        ensure_database_exists()
         db.create_all()
         print("✅ 数据库表已检测/创建成功！")
 
