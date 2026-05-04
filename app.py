@@ -4,7 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from config import Config
 from decimal import Decimal
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, create_engine, text, select
 from sqlalchemy.orm import joinedload  # <-- 引入 joinedload 用于优化查询
 from models import db, User, CommunityPost, FarmerInfo, Product, \
     BehaviorLog, ItemSimilarity, CartItem, Order, OrderItem, ProductSKU, ShippingTemplate, \
@@ -15,11 +15,13 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
 from recommend import RecommenderEngine
+from routes.assistant import assistant_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
 db.init_app(app)
+app.register_blueprint(assistant_bp)
 
 # 🔥 修复：统一 SocketIO 初始化方式，并移除 cors_allowed_origins，因为在 Canvas 环境下通常不需要显式设置
 socketio = SocketIO(app)
@@ -62,11 +64,30 @@ def init_shipping_templates():
         print("✅ 默认运费模板已初始化 (ID 1, 2, 3)！")
 
 
+
+def ensure_database_exists():
+    """若数据库不存在则自动创建（MySQL）。"""
+    uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+    if not uri.startswith('mysql'):
+        return
+
+    try:
+        db_name = uri.rsplit('/', 1)[-1].split('?', 1)[0]
+        server_uri = uri.rsplit('/', 1)[0]
+        engine = create_engine(server_uri)
+        with engine.connect() as conn:
+            conn.execute(text(f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"))
+            conn.commit()
+        print(f"✅ 数据库已确认存在: {db_name}")
+    except Exception as e:
+        print(f"❌ 自动创建数据库失败，请检查数据库账号权限: {e}")
+
 # ==========================================
 # 数据库初始化
 # ==========================================
 with app.app_context():
     try:
+        ensure_database_exists()
         db.create_all()
         print("✅ 数据库表已检测/创建成功！")
 
@@ -80,7 +101,7 @@ with app.app_context():
 def inject_user():
     user = None
     if 'user_id' in session:
-        user = User.query.get(session['user_id'])
+        user = db.session.get(User, session['user_id'])
     return dict(current_user=user)
 
 
@@ -94,7 +115,7 @@ def calculate_shipping_cost(cart_items, address):
 
     # Case 1: Template ID is passed as an integer (e.g. from place_order for a single item.
     if isinstance(cart_items, int):
-        template = ShippingTemplate.query.get(cart_items)
+        template = db.session.get(ShippingTemplate, cart_items)
         return template.base_cost if template else Decimal('10.00')
 
     # Case 2: List of CartItem objects is passed (from checkout). This is the key fix.
@@ -110,7 +131,7 @@ def calculate_shipping_cost(cart_items, address):
 
         # 遍历所有唯一的模板 ID，获取最高运费
         for template_id in template_ids:
-            template = ShippingTemplate.query.get(template_id)
+            template = db.session.get(ShippingTemplate, template_id)
             if template:
                 # 运费取所有模板中最高的那个
                 max_cost = max(max_cost, template.base_cost)
@@ -253,7 +274,7 @@ def product_detail(product_id):
     """商品详情页：接入 Item-Based 协同过滤 -> 热门商品兜底 + 收藏状态检查"""
     product = Product.query.get_or_404(product_id)
 
-    current_user = User.query.get(session.get('user_id'))
+    current_user = db.session.get(User, session.get('user_id'))
     if not product.is_on_sale and (not current_user or current_user.role == 0):
         flash('🚫 该商品已下架或正在维护中。')
         return redirect(url_for('index'))
@@ -385,7 +406,7 @@ def delete_post(post_id):
         flash('请先登录。')
         return redirect(url_for('login'))
 
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     post = CommunityPost.query.get_or_404(post_id)
 
     if post.user_id != user.user_id and user.role != 2:
@@ -409,7 +430,7 @@ def new_post():
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if request.method == 'POST':
         title = request.form.get('title')
@@ -788,7 +809,7 @@ def place_order():
 @app.route('/profile')
 def profile():
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     user_id = session['user_id']  # <-- 获取 user_id
 
     pending_orders_count = 0
@@ -796,9 +817,9 @@ def profile():
 
     if user and user.role == 1:
         # 农户：查询待发货订单数
-        order_ids_with_farmer_items = db.session.query(OrderItem.order_id).filter(
+        order_ids_with_farmer_items = select(OrderItem.order_id).where(
             OrderItem.farmer_id == user.user_id
-        ).distinct().subquery()
+        ).distinct()
 
         # 计算待发货订单总数，必须是待发货状态 (status=2)
         pending_orders_count = db.session.query(Order).filter(
@@ -832,14 +853,14 @@ def profile():
 @app.route('/profile/edit', methods=['GET', 'POST'])
 def edit_profile():
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if request.method == 'POST':
         user.email = request.form.get('email')
         user.phone = request.form.get('phone')
 
         if user.role == 1:
-            info = FarmerInfo.query.get(user.user_id)
+            info = db.session.get(FarmerInfo, user.user_id)
             if not info:
                 info = FarmerInfo(farmer_id=user.user_id)
                 db.session.add(info)
@@ -859,7 +880,7 @@ def edit_profile():
 def publish_product():
     """农户发布商品 (支持图片上传)"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if not user or user.role != 1 or user.status != 1:
         flash('❌ 无权发布，请等待审核。')
@@ -930,7 +951,7 @@ def toggle_product_status(product_id):
     """切换商品的上架/下架状态"""
     if 'user_id' not in session: return redirect(url_for('login'))
 
-    current_user = User.query.get(session['user_id'])
+    current_user = db.session.get(User, session['user_id'])
     product = Product.query.get_or_404(product_id)
 
     if current_user.role != 1 or product.farmer_id != current_user.user_id:
@@ -950,7 +971,7 @@ def toggle_product_status(product_id):
 def edit_product(product_id):
     """农户修改已发布的商品信息和规格"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     # 预加载 SKU
     product = Product.query.options(joinedload(Product.skus)).get_or_404(product_id)
@@ -1088,7 +1109,7 @@ def edit_product(product_id):
 def delete_product(product_id):
     """农户删除商品及其所有关联数据"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    current_user = User.query.get(session['user_id'])
+    current_user = db.session.get(User, session['user_id'])
 
     # 查找商品，确保存在
     product = Product.query.get_or_404(product_id)
@@ -1230,7 +1251,7 @@ def order_detail(order_id):
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
-    current_user = User.query.get(session['user_id'])
+    current_user = db.session.get(User, session['user_id'])
 
     # 1. 查找特定订单
     # 预加载 items 及其 sku 和 product
@@ -1311,7 +1332,7 @@ def edit_order_address(order_id):
     权限逻辑：允许消费者和负责农户/管理员访问。
     """
     if 'user_id' not in session: return redirect(url_for('login'))
-    current_user = User.query.get(session['user_id'])
+    current_user = db.session.get(User, session['user_id'])
 
     # 1. 查找订单
     order = Order.query.get_or_404(order_id)
@@ -1411,7 +1432,7 @@ def farmer_orders(status_filter):
                    aftersales (售后中, status=6), completed (已完成/售后结束, status=4/7)
     """
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if not user or user.role != 1:
         flash('🚫 权限不足')
@@ -1474,7 +1495,7 @@ def farmer_orders(status_filter):
 def ship_order(order_id):
     """农户：将订单状态从“待发货”(2)改为“待收货”(3)，接收发货单号"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if not user or user.role != 1:
         flash('🚫 权限不足')
@@ -1513,7 +1534,7 @@ def ship_order(order_id):
 def handle_after_sales(order_id):
     """农户：处理售后申请，将订单状态从“售后中”(6)改为“已退款/售后完成”(7)"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if not user or user.role != 1:
         flash('🚫 权限不足')
@@ -1586,7 +1607,7 @@ def view_favorites():
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     if user.role != 2:
         flash('🚫 权限不足')
         return redirect(url_for('index'))
@@ -1598,10 +1619,10 @@ def admin_dashboard():
 @app.route('/admin/approve/<int:user_id>')
 def approve_farmer(user_id):
     if 'user_id' not in session: return redirect(url_for('login'))
-    current_user = User.query.get(session['user_id'])
+    current_user = db.session.get(User, session['user_id'])
     if current_user.role != 2: return "无权操作", 403
 
-    farmer = User.query.get(user_id)
+    farmer = db.session.get(User, user_id)
     if farmer:
         farmer.status = 1
         db.session.commit()
@@ -1613,7 +1634,7 @@ def approve_farmer(user_id):
 def train_model():
     """手动触发推荐算法的离线计算 (计算物品相似度)"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
     if not user or user.role != 2:
         return "无权操作", 403
 
@@ -1686,7 +1707,7 @@ def collect_behavior():
 def farmer_dashboard():
     """助农数据看板：核心业务统计"""
     if 'user_id' not in session: return redirect(url_for('login'))
-    user = User.query.get(session['user_id'])
+    user = db.session.get(User, session['user_id'])
 
     if not user or user.role != 1:
         flash('🚫 您不是农户，无法查看数据看板。')
@@ -1819,7 +1840,7 @@ def chat_list():
         participants_ids = [int(p) for p in conv.participants.split(',') if int(p) != user_id]
         if not participants_ids: continue
 
-        other_user = User.query.get(participants_ids[0])
+        other_user = db.session.get(User, participants_ids[0])
 
         # 2. 获取最后一条消息
         last_message = Message.query.filter_by(conversation_id=conv.id).order_by(Message.timestamp.desc()).first()
@@ -1851,7 +1872,7 @@ def chat_detail(conv_id):
         return redirect(url_for('login'))
 
     user_id = session['user_id']
-    current_user = User.query.get(user_id)
+    current_user = db.session.get(User, user_id)
     conversation = Conversation.query.get_or_404(conv_id)
 
     # 权限检查：确保当前用户是会话参与者
@@ -1872,7 +1893,7 @@ def chat_detail(conv_id):
 
     # 找出对话的另一方 (即商家 ID)
     participants_ids = [int(p) for p in conversation.participants.split(',') if int(p) != user_id]
-    other_user = User.query.get(participants_ids[0])
+    other_user = db.session.get(User, participants_ids[0])
 
     # === 历史订单查询逻辑 (新增) ===
     # 1. 确定商家 ID
@@ -1910,7 +1931,7 @@ def start_chat(target_user_id):
         return redirect(url_for('profile'))
 
     # 查找目标用户是否存在
-    if not User.query.get(target_user_id):
+    if not db.session.get(User, target_user_id):
         flash('目标用户不存在。', 'error')
         return redirect(url_for('index'))
 
@@ -1976,14 +1997,14 @@ def handle_send_message(data):
             db.session.add(new_message)
 
             # 2. 更新会话的最后消息时间
-            conversation = Conversation.query.get(conv_id)
+            conversation = db.session.get(Conversation, conv_id)
             if conversation:
                 conversation.last_message_date = datetime.now()
 
             db.session.commit()
 
             # 3. 获取发送者名称用于广播
-            sender = User.query.get(sender_id)
+            sender = db.session.get(User, sender_id)
 
             # 4. 广播消息到房间内所有连接的用户
             room = str(conv_id)
