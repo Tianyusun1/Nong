@@ -49,7 +49,8 @@ def mall_assistant_chat():
     if not question:
         return jsonify({'ok': False, 'message': 'question 必填'}), 400
 
-    result = build_mall_answer(qwen_client, question)
+    user_id = session.get('user_id') or data.get('user_id')
+    result = build_mall_answer(qwen_client, question, user_id=user_id)
     return jsonify({'ok': True, **result})
 
 @assistant_bp.route('/health', methods=['GET'])

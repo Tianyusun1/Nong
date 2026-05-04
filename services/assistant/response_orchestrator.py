@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from sqlalchemy import or_
 
-from models import Product
+from models import Product, Order, db
 from services.assistant.intent_router import detect_intent
 from services.assistant.policy_engine import check_after_sales_eligibility
 from services.kg.kg_query import find_product_facts
@@ -71,8 +71,66 @@ def _search_products(question, limit=5):
     return query.limit(limit).all()
 
 
-def build_mall_answer(qwen_client, question):
+
+
+def _extract_order_id(question):
+    m = re.search(r'(?:订单|order)?\s*#?\s*(\d{1,10})', question or '')
+    return int(m.group(1)) if m else None
+
+
+def _handle_order_or_after_sales(question, user_id):
+    if not user_id:
+        return None
+
+    q = question or ''
+    if not any(k in q for k in ['订单', '物流', '售后', '退款', '退货', '换货']):
+        return None
+
+    order_id = _extract_order_id(q)
+    if not order_id:
+        return {
+            'intent': 'order_query',
+            'answer': '请提供订单号（例如：查询订单 123）。',
+            'recommendations': [],
+        }
+
+    order = Order.query.filter_by(order_id=order_id, user_id=user_id).first()
+    if not order:
+        return {
+            'intent': 'order_query',
+            'answer': '未找到该订单，或该订单不属于当前账号。',
+            'recommendations': [],
+        }
+
+    # 售后申请：将订单状态标记为售后中(6)
+    if any(k in q for k in ['售后', '退款', '退货', '换货']):
+        if order.status in [4, 3, 2]:
+            order.status = 6
+            order.after_sales_reason = q[:500]
+            db.session.commit()
+            return {
+                'intent': 'after_sales_apply',
+                'answer': f'订单 {order.order_id} 已提交售后申请，状态已更新为“售后中”。',
+                'recommendations': [],
+            }
+        return {
+            'intent': 'after_sales_apply',
+            'answer': f'订单 {order.order_id} 当前状态不支持发起售后（当前状态码: {order.status}）。',
+            'recommendations': [],
+        }
+
+    return {
+        'intent': 'order_query',
+        'answer': f'订单 {order.order_id} 当前状态码: {order.status}，收货人: {order.receiver_name or "未填写"}，联系电话: {order.receiver_phone or "未填写"}。',
+        'recommendations': [],
+    }
+
+def build_mall_answer(qwen_client, question, user_id=None):
     """商城全局客服：根据问题推荐站内商品并附详情页链接。"""
+    order_result = _handle_order_or_after_sales(question, user_id)
+    if order_result is not None:
+        return order_result
+
     base_url = os.getenv('MALL_BASE_URL', 'http://127.0.0.1:5000')
     products = _search_products(question)
     product_cards = _build_product_cards(products, base_url)
