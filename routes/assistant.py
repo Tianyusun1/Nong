@@ -37,3 +37,15 @@ def sync_product_to_kg():
 
     success = upsert_product(graph_client, int(product_id), int(merchant_id))
     return jsonify({'ok': success})
+
+
+@assistant_bp.route('/health', methods=['GET'])
+def assistant_health():
+    return jsonify({
+        'ok': True,
+        'assistant_ready': True,
+        'kg_enabled': graph_client.enabled,
+        'llm_enabled': qwen_client.enabled,
+        'llm_backend': qwen_client.backend,
+        'llm_model_path': qwen_client.model_path,
+    })
