@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify, session
 from services.kg.graph_client import GraphClient
 from services.kg.kg_builder import upsert_product
 from services.llm.qwen_client import QwenClient
-from services.assistant.response_orchestrator import build_answer
+from services.assistant.response_orchestrator import build_answer, build_mall_answer
 
 assistant_bp = Blueprint('assistant', __name__, url_prefix='/api/assistant')
 
@@ -38,6 +38,18 @@ def sync_product_to_kg():
     success = upsert_product(graph_client, int(product_id), int(merchant_id))
     return jsonify({'ok': success})
 
+
+
+
+@assistant_bp.route('/mall_chat', methods=['POST'])
+def mall_assistant_chat():
+    data = request.get_json(force=True)
+    question = (data.get('question') or '').strip()
+    if not question:
+        return jsonify({'ok': False, 'message': 'question 必填'}), 400
+
+    result = build_mall_answer(qwen_client, question)
+    return jsonify({'ok': True, **result})
 
 @assistant_bp.route('/health', methods=['GET'])
 def assistant_health():
