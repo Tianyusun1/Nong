@@ -266,3 +266,36 @@ class ProductReview(db.Model):
     # 关联
     product = db.relationship('Product', backref='reviews')
     user = db.relationship('User', backref='reviews')
+
+class MerchantPolicy(db.Model):
+    __tablename__ = 'T_Merchant_Policy'
+    id = db.Column(db.Integer, primary_key=True)
+    merchant_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False, index=True)
+    return_window_days = db.Column(db.Integer, default=7)
+    supports_no_reason_return = db.Column(db.Boolean, default=False)
+    fresh_goods_rule = db.Column(db.String(255), default='生鲜类非质量问题不支持无理由退货')
+    shipping_bearer_rule = db.Column(db.String(255), default='质量问题商家承担运费，非质量问题买家承担')
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class FAQItem(db.Model):
+    __tablename__ = 'T_FAQ_Item'
+    id = db.Column(db.Integer, primary_key=True)
+    merchant_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False, index=True)
+    question = db.Column(db.String(255), nullable=False)
+    answer = db.Column(db.Text, nullable=False)
+    category = db.Column(db.String(50), default='售前')
+    is_active = db.Column(db.Boolean, default=True)
+
+
+class KGSyncLog(db.Model):
+    __tablename__ = 'T_KG_Sync_Log'
+    id = db.Column(db.BigInteger, primary_key=True)
+    merchant_id = db.Column(db.Integer, db.ForeignKey('T_User.user_id'), nullable=False, index=True)
+    entity_type = db.Column(db.String(50), nullable=False)
+    entity_id = db.Column(db.Integer, nullable=False)
+    action = db.Column(db.String(20), nullable=False)
+    sync_status = db.Column(db.String(20), default='success')
+    error_message = db.Column(db.Text)
+    version = db.Column(db.String(50), default='v1')
+    created_at = db.Column(db.DateTime, default=datetime.now)

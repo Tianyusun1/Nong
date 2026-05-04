@@ -15,11 +15,13 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 
 from recommend import RecommenderEngine
+from routes.assistant import assistant_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
 db.init_app(app)
+app.register_blueprint(assistant_bp)
 
 # 🔥 修复：统一 SocketIO 初始化方式，并移除 cors_allowed_origins，因为在 Canvas 环境下通常不需要显式设置
 socketio = SocketIO(app)

@@ -1,0 +1,38 @@
+from flask import Blueprint, request, jsonify, session
+
+from services.kg.graph_client import GraphClient
+from services.kg.kg_builder import upsert_product
+from services.llm.qwen_client import QwenClient
+from services.assistant.response_orchestrator import build_answer
+
+assistant_bp = Blueprint('assistant', __name__, url_prefix='/api/assistant')
+
+graph_client = GraphClient()
+qwen_client = QwenClient()
+
+
+@assistant_bp.route('/chat', methods=['POST'])
+def assistant_chat():
+    data = request.get_json(force=True)
+    merchant_id = data.get('merchant_id')
+    question = data.get('question', '').strip()
+    order_id = data.get('order_id')
+    user_id = session.get('user_id') or data.get('user_id')
+
+    if not merchant_id or not question or not user_id:
+        return jsonify({'ok': False, 'message': 'merchant_id/question/user_id 必填'}), 400
+
+    result = build_answer(graph_client, qwen_client, int(merchant_id), int(user_id), question, order_id)
+    return jsonify({'ok': True, **result})
+
+
+@assistant_bp.route('/sync_product', methods=['POST'])
+def sync_product_to_kg():
+    data = request.get_json(force=True)
+    merchant_id = data.get('merchant_id')
+    product_id = data.get('product_id')
+    if not merchant_id or not product_id:
+        return jsonify({'ok': False, 'message': 'merchant_id/product_id 必填'}), 400
+
+    success = upsert_product(graph_client, int(product_id), int(merchant_id))
+    return jsonify({'ok': success})
