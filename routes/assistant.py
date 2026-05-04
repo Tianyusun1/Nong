@@ -1,3 +1,4 @@
+import os
 from flask import Blueprint, request, jsonify, session
 
 from services.kg.graph_client import GraphClient
@@ -58,6 +59,7 @@ def assistant_health():
         'assistant_ready': True,
         'kg_enabled': graph_client.enabled,
         'kg_database': graph_client.database,
+        'kg_source_tag': os.getenv('KG_SOURCE_TAG', 'mall_assistant_v2'),
         'llm_enabled': qwen_client.enabled,
         'llm_backend': qwen_client.backend,
         'llm_model_path': qwen_client.model_path,
